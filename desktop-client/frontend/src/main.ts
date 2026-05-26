@@ -1,3 +1,4 @@
+// main.ts mounts the Svelte application into the Wails frontend document.
 import './style.css'
 import App from './App.svelte'
 

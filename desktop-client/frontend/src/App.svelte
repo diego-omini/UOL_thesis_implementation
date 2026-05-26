@@ -1,4 +1,5 @@
 <script lang="ts">
+  // App.svelte contains the root frontend component rendered by the Wails application.
   import logo from './assets/images/logo-universal.png'
   import {Greet} from '../wailsjs/go/main/App.js'
 
