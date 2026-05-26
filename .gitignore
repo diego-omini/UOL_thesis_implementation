@@ -29,4 +29,72 @@ go.work.sum
 
 # Editor/IDE
 # .idea/
-# .vscode/
+.vscode/
+
+# Dependencies
+desktop-client/frontend/node_modules/
+
+# Frontend build output
+desktop-client/frontend/dist/
+desktop-client/frontend/.svelte-kit/
+
+# Wails build output
+desktop-client/build/bin/
+desktop-client/build/windows/installer/*
+
+# Go build/test artifacts
+*.exe
+*.test
+*.out
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Dependencies
+desktop-client/frontend/node_modules/
+
+# Frontend build output
+desktop-client/frontend/dist/
+desktop-client/frontend/.svelte-kit/
+
+# Wails build output
+desktop-client/build/bin/
+desktop-client/build/windows/installer/*
+
+# Go build/test artifacts
+*.exe
+*.test
+*.out
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
