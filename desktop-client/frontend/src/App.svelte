@@ -1,80 +1,107 @@
 <script lang="ts">
   // App.svelte contains the root frontend component rendered by the Wails application.
-  import logo from './assets/images/logo-universal.png'
-  import {Greet} from '../wailsjs/go/main/App.js'
+  import {CheckIBKRConnection} from '../wailsjs/go/main/App.js'
 
-  let resultText: string = "Please enter your name below 👇"
-  let name: string
+  type ConnectionStatus = {
+    Connected: boolean
+    Message: string
+  }
 
-  function greet(): void {
-    Greet(name).then(result => resultText = result)
+  let checking = false
+  let status: ConnectionStatus | null = null
+
+  async function checkConnection(): Promise<void> {
+    checking = true
+
+    try {
+      status = await CheckIBKRConnection()
+    } catch (error) {
+      status = {
+        Connected: false,
+        Message: `Failed to call backend: ${error}`,
+      }
+    } finally {
+      checking = false
+    }
   }
 </script>
 
-<main>
-  <img alt="Wails logo" id="logo" src="{logo}">
-  <div class="result" id="result">{resultText}</div>
-  <div class="input-box" id="input">
-    <input autocomplete="off" bind:value={name} class="input" id="name" type="text"/>
-    <button class="btn" on:click={greet}>Greet</button>
-  </div>
+<main class="page">
+  <section class="panel">
+    <h1>IBKR connection</h1>
+    <button class="button" disabled={checking} on:click={checkConnection}>
+      {checking ? 'Checking...' : 'Check gateway connection'}
+    </button>
+
+    {#if status}
+    <div class:connected={status.Connected} class:failed={!status.Connected} class="status">
+      <strong>{status.Connected ? 'Connected' : 'Not connected'}</strong>
+      <span>{status.Message}</span>
+    </div>
+    {/if}
+  </section>
 </main>
 
 <style>
-
-  #logo {
-    display: block;
-    width: 50%;
-    height: 50%;
-    margin: auto;
-    padding: 10% 0 0;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: 100% 100%;
-    background-origin: content-box;
+  .page {
+    display: grid;
+    min-height: 100vh;
+    place-items: center;
+    padding: 32px;
+    box-sizing: border-box;
   }
 
-  .result {
-    height: 20px;
-    line-height: 20px;
-    margin: 1.5rem auto;
+  .panel {
+    width: min(640px, 100%);
+    text-align: left;
   }
 
-  .input-box .btn {
-    width: 60px;
-    height: 30px;
-    line-height: 30px;
-    border-radius: 3px;
+  h1 {
+    margin: 0 0 12px;
+    font-size: 32px;
+    font-weight: 700;
+  }
+
+  .description {
+    margin: 0 0 24px;
+    color: rgba(255, 255, 255, 0.72);
+    line-height: 1.5;
+  }
+
+  .button {
+    height: 40px;
+    padding: 0 16px;
     border: none;
-    margin: 0 0 0 20px;
-    padding: 0 8px;
+    border-radius: 4px;
+    background: #f2f5f8;
+    color: #1b2636;
+    font-weight: 700;
     cursor: pointer;
   }
 
-  .input-box .btn:hover {
-    background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%);
-    color: #333333;
+  .button:disabled {
+    cursor: wait;
+    opacity: 0.7;
   }
 
-  .input-box .input {
-    border: none;
-    border-radius: 3px;
-    outline: none;
-    height: 30px;
-    line-height: 30px;
-    padding: 0 10px;
-    background-color: rgba(240, 240, 240, 1);
-    -webkit-font-smoothing: antialiased;
+  .status {
+    display: grid;
+    gap: 6px;
+    margin-top: 24px;
+    padding: 16px;
+    border-left: 4px solid;
+    background: rgba(255, 255, 255, 0.08);
   }
 
-  .input-box .input:hover {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+  .status span {
+    line-height: 1.5;
   }
 
-  .input-box .input:focus {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+  .connected {
+    border-color: #4ade80;
   }
 
+  .failed {
+    border-color: #fb7185;
+  }
 </style>
