@@ -2,20 +2,29 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"wails/broker"
 	"wails/config"
 	"wails/ibkr"
 )
 
 // App is the Wails application object whose exported methods can be called from the frontend.
 type App struct {
-	ctx context.Context
-	cfg config.AppConfig
+	ctx             context.Context
+	cfg             config.AppConfig
+	portfolioBroker broker.PortfolioProvider
 }
 
 // NewApp creates the Wails application object.
 func NewApp() *App {
+	cfg := config.DefaultConfig()
+
 	return &App{
-		cfg: config.DefaultConfig(),
+		cfg: cfg,
+		portfolioBroker: ibkr.NewClient(
+			cfg.IBKR.BaseURL,
+			cfg.IBKR.SkipTLSVerifyLocal,
+		),
 	}
 }
 
@@ -24,14 +33,34 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-func (a *App) CheckIBKRConnection() ibkr.ConnectionStatus {
+// *************************************************
+// Expose data needed by the frontend
+// *************************************************
+
+func (a *App) CheckConnection() ConnectionStatusView {
 	ctx := a.ctx
 
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	client := ibkr.NewClient(a.cfg.IBKR.BaseURL, a.cfg.IBKR.SkipTLSVerifyLocal)
+	status := a.portfolioBroker.CheckConnection(ctx)
 
-	return client.CheckConnection(ctx)
+	return toConnectionStatusView(status.Connected, status.Message)
+}
+
+func (a *App) GetPortfolio() (PortfolioView, error) {
+	ctx := a.ctx
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	portfolioSnapshot, err := a.portfolioBroker.FetchPortfolio(ctx)
+
+	if err != nil {
+		return PortfolioView{}, fmt.Errorf("failed to fetch portfolio: %w", err)
+	}
+
+	return toPortfolioView(portfolioSnapshot), nil
 }

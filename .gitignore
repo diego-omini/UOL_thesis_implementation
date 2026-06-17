@@ -46,6 +46,7 @@ desktop-client/build/windows/installer/*
 *.exe
 *.test
 *.out
+.gocache/
 
 # Logs
 *.log
