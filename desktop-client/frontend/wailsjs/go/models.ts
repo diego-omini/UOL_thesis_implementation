@@ -63,11 +63,14 @@ export namespace main {
 	    }
 	}
 	export class InstrumentView {
+	    ContractID: number;
 	    Symbol: string;
 	    Name: string;
 	    AssetClass: string;
 	    Exchange: string;
 	    Currency: string;
+	    Sector: string;
+	    Industry: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new InstrumentView(source);
@@ -75,11 +78,14 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ContractID = source["ContractID"];
 	        this.Symbol = source["Symbol"];
 	        this.Name = source["Name"];
 	        this.AssetClass = source["AssetClass"];
 	        this.Exchange = source["Exchange"];
 	        this.Currency = source["Currency"];
+	        this.Sector = source["Sector"];
+	        this.Industry = source["Industry"];
 	    }
 	}
 	

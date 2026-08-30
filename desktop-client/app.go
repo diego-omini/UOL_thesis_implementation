@@ -16,8 +16,11 @@ type App struct {
 }
 
 // NewApp creates the Wails application object.
-func NewApp() *App {
-	cfg := config.DefaultConfig()
+func NewApp() (*App, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load application configuration: %w", err)
+	}
 
 	return &App{
 		cfg: cfg,
@@ -25,7 +28,7 @@ func NewApp() *App {
 			cfg.IBKR.BaseURL,
 			cfg.IBKR.SkipTLSVerifyLocal,
 		),
-	}
+	}, nil
 }
 
 // startup stores the Wails runtime context when the application starts.

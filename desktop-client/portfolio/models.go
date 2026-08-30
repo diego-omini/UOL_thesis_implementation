@@ -9,11 +9,14 @@ type Money struct {
 
 // Instrument describes a tradable financial instrument held in the portfolio.
 type Instrument struct {
+	ContractID int64
 	Symbol     string
 	Name       string
 	AssetClass string
 	Exchange   string
 	Currency   string
+	Sector     string
+	Industry   string
 }
 
 // Position represents the portfolio's holding and valuation data for one instrument.

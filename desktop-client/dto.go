@@ -20,11 +20,14 @@ type AccountSummaryView struct {
 }
 
 type InstrumentView struct {
+	ContractID int64
 	Symbol     string
 	Name       string
 	AssetClass string
 	Exchange   string
 	Currency   string
+	Sector     string
+	Industry   string
 }
 
 type PositionView struct {

@@ -14,11 +14,14 @@
   }
 
   type InstrumentView = {
+    ContractID: number
     Symbol: string
     Name: string
     AssetClass: string
     Exchange: string
     Currency: string
+    Sector: string
+    Industry: string
   }
 
   type AccountSummaryView = {
@@ -203,7 +206,9 @@
 
                   <td>
                     {position.Instrument.AssetClass || '-'}
-                    <span>{position.Instrument.Currency || ''}</span>
+                    <span>
+                      {position.Instrument.Sector || position.Instrument.Currency || ''}
+                    </span>
                   </td>
 
                   <td class="numeric">{formatNumber(position.Quantity)}</td>
@@ -240,7 +245,7 @@
     text-align: left;
   }
 
-  .toolbar {
+  .panel {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -250,19 +255,13 @@
   }
 
   h1,
-  h2,
-  p {
+  h2 {
     margin: 0;
   }
 
   h1 {
     font-size: 30px;
     font-weight: 700;
-  }
-
-  .toolbar p {
-    margin-top: 4px;
-    color: #5d6a7a;
   }
 
   .actions {
@@ -279,11 +278,6 @@
     color: white;
     font-weight: 700;
     cursor: pointer;
-  }
-
-  .button.secondary {
-    background: white;
-    color: #1f6f8b;
   }
 
   .button:disabled {
@@ -438,7 +432,7 @@
       padding: 20px;
     }
 
-    .toolbar,
+    .panel,
     .actions {
       align-items: stretch;
       flex-direction: column;

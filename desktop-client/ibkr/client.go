@@ -10,12 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 	"wails/broker"
 	"wails/portfolio"
 )
+
+const maxPositionPages = 100
 
 // IBKR client portal gateway adapter
 type Client struct {
@@ -56,12 +59,17 @@ type summaryValueResponse struct {
 // Mirrors response from /portfolio/{account}/positions/{page}.
 type positionResponse struct {
 	AccountID        string        `json:"acctId"`
+	ContractID       int64         `json:"conid"`
 	Symbol           string        `json:"ticker"`
 	ContractDesc     string        `json:"contractDesc"`
+	Name             string        `json:"name"`
 	AssetClass       string        `json:"assetClass"`
+	Sector           string        `json:"sector"`
+	SectorGroup      string        `json:"sectorGroup"`
 	Exchange         string        `json:"exchange"`
 	ListingExchange  string        `json:"listingExchange"`
 	Currency         string        `json:"currency"`
+	PageSize         int           `json:"pageSize"`
 	Position         decimalNumber `json:"position"`
 	AverageCost      decimalNumber `json:"avgCost"`
 	AveragePrice     decimalNumber `json:"avgPrice"`
@@ -228,7 +236,7 @@ func (c *Client) fetchAccount(ctx context.Context) (accountResponse, error) {
 func (c *Client) fetchAccountSummary(ctx context.Context, account accountResponse) (portfolio.AccountSummary, error) {
 	var response map[string]summaryValueResponse
 
-	path := fmt.Sprintf("/portfolio/%s/summary", account.accountID())
+	path := fmt.Sprintf("/portfolio/%s/summary", url.PathEscape(account.accountID()))
 
 	if err := c.getJSON(ctx, path, &response); err != nil {
 		return portfolio.AccountSummary{}, fmt.Errorf("failed to fetch account summary: %w", err)
@@ -253,23 +261,46 @@ func (c *Client) fetchAccountSummary(ctx context.Context, account accountRespons
 	}, nil
 }
 
-// fetchPositions retrieves info about the account active investments
-// TODO add support for pagination.
+// fetchPositions retrieves all active positions for the account.
 func (c *Client) fetchPositions(ctx context.Context, account accountResponse) ([]portfolio.Position, error) {
-	var responses []positionResponse
+	positions := make([]portfolio.Position, 0)
 
-	path := fmt.Sprintf("/portfolio/%s/positions/0", account.accountID())
+	for page := 0; page < maxPositionPages; page++ {
+		var responses []positionResponse
+		path := fmt.Sprintf(
+			"/portfolio/%s/positions/%d",
+			url.PathEscape(account.accountID()),
+			page,
+		)
 
-	if err := c.getJSON(ctx, path, &responses); err != nil {
-		return nil, fmt.Errorf("failed to fetch positions: %w", err)
+		if err := c.getJSON(ctx, path, &responses); err != nil {
+			return nil, fmt.Errorf("failed to fetch positions page %d: %w", page, err)
+		}
+
+		for _, response := range responses {
+			positions = append(positions, mapPosition(response, account.Currency))
+		}
+
+		if !hasMorePositionPages(responses) {
+			return positions, nil
+		}
 	}
 
-	positions := make([]portfolio.Position, 0, len(responses))
+	return nil, fmt.Errorf("position response exceeded the %d-page safety limit", maxPositionPages)
+}
+
+func hasMorePositionPages(responses []positionResponse) bool {
+	if len(responses) == 0 {
+		return false
+	}
+
 	for _, response := range responses {
-		positions = append(positions, mapPosition(response, account.Currency))
+		if response.PageSize > 0 {
+			return len(responses) >= response.PageSize
+		}
 	}
 
-	return positions, nil
+	return true
 }
 
 // getJSON centralizes basic gateway http handling.
@@ -315,11 +346,14 @@ func mapPosition(response positionResponse, fallbackCurrency string) portfolio.P
 
 	return portfolio.Position{
 		Instrument: portfolio.Instrument{
+			ContractID: response.ContractID,
 			Symbol:     firstNonEmpty(response.Symbol, response.ContractDesc),
-			Name:       response.ContractDesc,
+			Name:       firstNonEmpty(response.Name, response.ContractDesc),
 			AssetClass: response.AssetClass,
 			Exchange:   firstNonEmpty(response.Exchange, response.ListingExchange),
 			Currency:   currency,
+			Sector:     response.Sector,
+			Industry:   response.SectorGroup,
 		},
 		Quantity: response.Position.value,
 		AverageCost: portfolio.Money{
