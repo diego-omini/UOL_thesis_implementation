@@ -1,6 +1,6 @@
 # Desktop client
 
-The application connects to an authenticated Interactive Brokers Client Portal Gateway session, retrieves the paper account summary and all open positions, and displays them through a Wails desktop interface.
+The application connects to an authenticated Interactive Brokers Client Portal Gateway session, retrieves the paper account summary and all open positions, and calculates portfolio allocation and concentration metrics.
 
 Only paper trading is within scope. The current version uses the first account returned by the gateway.
 
@@ -56,6 +56,12 @@ wails dev
 
 TLS verification should only be disabled for the locally hosted gateway. Do not use this setting for a remote endpoint.
 
+## Analytics
+
+Portfolio-wide calculations use the account base currency. IBKR base-currency position values are used when available. Otherwise, local-currency values are converted using the account-relative exchange rates returned by `/portfolio/{accountId}/ledger`. Original position values remain in their reported currencies, and the dashboard shows the conversion rate, source, and timestamp. Metrics that require an unavailable conversion rate are marked unavailable.
+
+Position and allocation weights use absolute market exposure, so short positions do not cancel long positions. The concentration index is the sum of squared position weights and ranges from values near zero for broadly distributed portfolios to one for a single-position portfolio.
+
 ## Checks
 
 Run the backend tests from this directory:
@@ -89,4 +95,4 @@ wails build
 - The first account returned by `/portfolio/accounts` is used.
 - Account selection is not yet exposed in the interface.
 - The application depends on the locally authenticated gateway session.
-- Historical portfolio snapshots, analytics, AI counseling, and manual paper orders are not implemented yet.
+- Historical portfolio snapshots, the AI counselor, and manual paper orders are not implemented yet.

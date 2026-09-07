@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,10 @@ import (
 	"wails/portfolio"
 )
 
-const maxPositionPages = 100
+const (
+	maxPositionPages = 100
+	ledgerRateSource = "IBKR account ledger"
+)
 
 // IBKR client portal gateway adapter
 type Client struct {
@@ -56,27 +60,35 @@ type summaryValueResponse struct {
 	Currency string        `json:"currency"`
 }
 
+type ledgerValueResponse struct {
+	Currency     string        `json:"currency"`
+	ExchangeRate decimalNumber `json:"exchangerate"`
+	Timestamp    int64         `json:"timestamp"`
+}
+
 // Mirrors response from /portfolio/{account}/positions/{page}.
 type positionResponse struct {
-	AccountID        string        `json:"acctId"`
-	ContractID       int64         `json:"conid"`
-	Symbol           string        `json:"ticker"`
-	ContractDesc     string        `json:"contractDesc"`
-	Name             string        `json:"name"`
-	AssetClass       string        `json:"assetClass"`
-	Sector           string        `json:"sector"`
-	SectorGroup      string        `json:"sectorGroup"`
-	Exchange         string        `json:"exchange"`
-	ListingExchange  string        `json:"listingExchange"`
-	Currency         string        `json:"currency"`
-	PageSize         int           `json:"pageSize"`
-	Position         decimalNumber `json:"position"`
-	AverageCost      decimalNumber `json:"avgCost"`
-	AveragePrice     decimalNumber `json:"avgPrice"`
-	MarketPrice      decimalNumber `json:"mktPrice"`
-	MarketValue      decimalNumber `json:"mktValue"`
-	UnrealizedPnL    decimalNumber `json:"unrealizedPnl"`
-	UnrealizedPnLAlt decimalNumber `json:"unrealizedPNL"`
+	AccountID         string        `json:"acctId"`
+	ContractID        int64         `json:"conid"`
+	Symbol            string        `json:"ticker"`
+	ContractDesc      string        `json:"contractDesc"`
+	Name              string        `json:"name"`
+	AssetClass        string        `json:"assetClass"`
+	Sector            string        `json:"sector"`
+	SectorGroup       string        `json:"sectorGroup"`
+	Exchange          string        `json:"exchange"`
+	ListingExchange   string        `json:"listingExchange"`
+	Currency          string        `json:"currency"`
+	PageSize          int           `json:"pageSize"`
+	Position          decimalNumber `json:"position"`
+	AverageCost       decimalNumber `json:"avgCost"`
+	AveragePrice      decimalNumber `json:"avgPrice"`
+	MarketPrice       decimalNumber `json:"mktPrice"`
+	MarketValue       decimalNumber `json:"mktValue"`
+	BaseMarketValue   decimalNumber `json:"baseMktValue"`
+	UnrealizedPnL     decimalNumber `json:"unrealizedPnl"`
+	UnrealizedPnLAlt  decimalNumber `json:"unrealizedPNL"`
+	BaseUnrealizedPnL decimalNumber `json:"baseUnrealizedPnl"`
 }
 
 // IBKR returns numbers as JSON numbers, strings, empty string, or null.
@@ -181,12 +193,6 @@ func (c *Client) CheckConnection(ctx context.Context) broker.ConnectionStatus {
 
 // FetchPortfolio fetches and maps the paper account info to domain models.
 func (c *Client) FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error) {
-	status := c.CheckConnection(ctx)
-
-	if !status.Connected {
-		return portfolio.Portfolio{}, errors.New(status.Message)
-	}
-
 	account, err := c.fetchAccount(ctx)
 
 	if err != nil {
@@ -195,6 +201,16 @@ func (c *Client) FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error
 
 	summary, err := c.fetchAccountSummary(ctx, account)
 
+	if err != nil {
+		return portfolio.Portfolio{}, err
+	}
+
+	baseCurrency := firstNonEmpty(
+		account.Currency,
+		summary.NetLiquidation.Currency,
+		summary.CashBalance.Currency,
+	)
+	exchangeRates, err := c.fetchExchangeRates(ctx, account, baseCurrency, time.Now())
 	if err != nil {
 		return portfolio.Portfolio{}, err
 	}
@@ -208,6 +224,7 @@ func (c *Client) FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error
 	return portfolio.Portfolio{
 		AccountSummary: summary,
 		Positions:      positions,
+		ExchangeRates:  exchangeRates,
 	}, nil
 }
 
@@ -259,6 +276,72 @@ func (c *Client) fetchAccountSummary(ctx context.Context, account accountRespons
 			"CashBalance",
 		),
 	}, nil
+}
+
+func (c *Client) fetchExchangeRates(
+	ctx context.Context,
+	account accountResponse,
+	baseCurrency string,
+	retrievedAt time.Time,
+) ([]portfolio.ExchangeRate, error) {
+	var response map[string]ledgerValueResponse
+	path := fmt.Sprintf("/portfolio/%s/ledger", url.PathEscape(account.accountID()))
+	if err := c.getJSON(ctx, path, &response); err != nil {
+		return nil, fmt.Errorf("failed to fetch account currency ledger: %w", err)
+	}
+
+	ratesByCurrency := make(map[string]portfolio.ExchangeRate)
+	for key, value := range response {
+		currency := strings.ToUpper(firstNonEmpty(value.Currency, key))
+		if currency == "" || currency == "BASE" {
+			continue
+		}
+
+		ratesByCurrency[currency] = portfolio.ExchangeRate{
+			Currency:          currency,
+			BaseCurrency:      strings.ToUpper(baseCurrency),
+			BaseAmountPerUnit: value.ExchangeRate.value,
+			Available:         value.ExchangeRate.valid && value.ExchangeRate.value > 0,
+			Source:            ledgerRateSource,
+			AsOf:              ledgerTime(value.Timestamp, retrievedAt),
+		}
+	}
+
+	baseCurrency = strings.ToUpper(strings.TrimSpace(baseCurrency))
+	if baseCurrency != "" {
+		if _, exists := ratesByCurrency[baseCurrency]; !exists {
+			ratesByCurrency[baseCurrency] = portfolio.ExchangeRate{
+				Currency:          baseCurrency,
+				BaseCurrency:      baseCurrency,
+				BaseAmountPerUnit: 1,
+				Available:         true,
+				Source:            ledgerRateSource,
+				AsOf:              retrievedAt.UTC(),
+			}
+		}
+	}
+
+	currencies := make([]string, 0, len(ratesByCurrency))
+	for currency := range ratesByCurrency {
+		currencies = append(currencies, currency)
+	}
+	sort.Strings(currencies)
+
+	rates := make([]portfolio.ExchangeRate, 0, len(currencies))
+	for _, currency := range currencies {
+		rates = append(rates, ratesByCurrency[currency])
+	}
+	return rates, nil
+}
+
+func ledgerTime(timestamp int64, fallback time.Time) time.Time {
+	if timestamp <= 0 {
+		return fallback.UTC()
+	}
+	if timestamp >= 1_000_000_000_000 {
+		return time.UnixMilli(timestamp).UTC()
+	}
+	return time.Unix(timestamp, 0).UTC()
 }
 
 // fetchPositions retrieves all active positions for the account.
@@ -333,16 +416,8 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 func mapPosition(response positionResponse, fallbackCurrency string) portfolio.Position {
 	currency := firstNonEmpty(response.Currency, fallbackCurrency)
 
-	averageCost := firstDecimalValue(response.AverageCost, response.AveragePrice)
-
-	if averageCost == 0 {
-		averageCost = response.AveragePrice.value
-	}
-
-	unrealizedPnL := firstDecimalValue(response.UnrealizedPnL, response.UnrealizedPnLAlt)
-	if unrealizedPnL == 0 {
-		unrealizedPnL = response.UnrealizedPnLAlt.value
-	}
+	averageCost := firstDecimal(response.AverageCost, response.AveragePrice)
+	unrealizedPnL := firstDecimal(response.UnrealizedPnL, response.UnrealizedPnLAlt)
 
 	return portfolio.Position{
 		Instrument: portfolio.Instrument{
@@ -355,23 +430,21 @@ func mapPosition(response positionResponse, fallbackCurrency string) portfolio.P
 			Sector:     response.Sector,
 			Industry:   response.SectorGroup,
 		},
-		Quantity: response.Position.value,
-		AverageCost: portfolio.Money{
-			Amount:   averageCost,
-			Currency: currency,
-		},
-		MarketPrice: portfolio.Money{
-			Amount:   response.MarketPrice.value,
-			Currency: currency,
-		},
-		MarketValue: portfolio.Money{
-			Amount:   response.MarketValue.value,
-			Currency: currency,
-		},
-		UnrealizedPnL: portfolio.Money{
-			Amount:   unrealizedPnL,
-			Currency: currency,
-		},
+		Quantity:          response.Position.value,
+		AverageCost:       decimalMoney(averageCost, currency),
+		MarketPrice:       decimalMoney(response.MarketPrice, currency),
+		MarketValue:       decimalMoney(response.MarketValue, currency),
+		BaseMarketValue:   decimalMoney(response.BaseMarketValue, fallbackCurrency),
+		UnrealizedPnL:     decimalMoney(unrealizedPnL, currency),
+		BaseUnrealizedPnL: decimalMoney(response.BaseUnrealizedPnL, fallbackCurrency),
+	}
+}
+
+func decimalMoney(value decimalNumber, currency string) portfolio.Money {
+	return portfolio.Money{
+		Amount:    value.value,
+		Currency:  currency,
+		Available: value.valid,
 	}
 }
 
@@ -384,30 +457,26 @@ func summaryMoney(values map[string]summaryValueResponse, fallbackCurrency strin
 			continue
 		}
 
+		amount, available := summaryAmount(value)
+
 		return portfolio.Money{
-			Amount:   summaryAmount(value),
-			Currency: firstNonEmpty(value.Currency, fallbackCurrency),
+			Amount:    amount,
+			Currency:  firstNonEmpty(value.Currency, fallbackCurrency),
+			Available: available,
 		}
 	}
 
 	return portfolio.Money{
-		Amount:   0,
 		Currency: fallbackCurrency,
 	}
 }
 
-func summaryAmount(value summaryValueResponse) float64 {
+func summaryAmount(value summaryValueResponse) (float64, bool) {
 	if value.Amount.valid {
-		return value.Amount.value
+		return value.Amount.value, true
 	}
 
-	parsed, ok := parseDecimalString(value.Value)
-
-	if !ok {
-		return 0
-	}
-
-	return parsed
+	return parseDecimalString(value.Value)
 }
 
 func parseDecimalString(value string) (float64, bool) {
@@ -439,13 +508,13 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// firstDecimalValue returns the first numeric value that is present.
-func firstDecimalValue(values ...decimalNumber) float64 {
+// firstDecimal returns the first numeric value that is present.
+func firstDecimal(values ...decimalNumber) decimalNumber {
 	for _, value := range values {
 		if value.valid {
-			return value.value
+			return value
 		}
 	}
 
-	return 0
+	return decimalNumber{}
 }

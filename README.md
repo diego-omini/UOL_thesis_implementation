@@ -1,4 +1,4 @@
-# AI-assisted portfolio management
+# Portfolio counseling desktop client
 
 Master thesis implementation of a Wails desktop client for the Interactive Brokers paper-trading environment.
 

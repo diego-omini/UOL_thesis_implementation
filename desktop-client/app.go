@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
+	"wails/analytics"
 	"wails/broker"
 	"wails/config"
 	"wails/ibkr"
@@ -65,5 +67,6 @@ func (a *App) GetPortfolio() (PortfolioView, error) {
 		return PortfolioView{}, fmt.Errorf("failed to fetch portfolio: %w", err)
 	}
 
-	return toPortfolioView(portfolioSnapshot), nil
+	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
+	return toPortfolioView(portfolioSnapshot, portfolioAnalytics), nil
 }

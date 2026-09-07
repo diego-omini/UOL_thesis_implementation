@@ -1,10 +1,23 @@
 // Package portfolio defines domain models used independently from IBKR and persistence DTOs.
 package portfolio
 
+import "time"
+
 // Money represents a monetary amount in a specific currency.
 type Money struct {
-	Amount   float64
-	Currency string
+	Amount    float64
+	Currency  string
+	Available bool
+}
+
+// ExchangeRate converts one unit of Currency into BaseCurrency.
+type ExchangeRate struct {
+	Currency          string
+	BaseCurrency      string
+	BaseAmountPerUnit float64
+	Available         bool
+	Source            string
+	AsOf              time.Time
 }
 
 // Instrument describes a tradable financial instrument held in the portfolio.
@@ -21,12 +34,14 @@ type Instrument struct {
 
 // Position represents the portfolio's holding and valuation data for one instrument.
 type Position struct {
-	Instrument    Instrument
-	Quantity      float64
-	AverageCost   Money
-	MarketPrice   Money
-	MarketValue   Money
-	UnrealizedPnL Money
+	Instrument        Instrument
+	Quantity          float64
+	AverageCost       Money
+	MarketPrice       Money
+	MarketValue       Money
+	BaseMarketValue   Money
+	UnrealizedPnL     Money
+	BaseUnrealizedPnL Money
 }
 
 // AccountSummary contains high-level account values needed by the portfolio view.
@@ -40,4 +55,5 @@ type AccountSummary struct {
 type Portfolio struct {
 	AccountSummary AccountSummary
 	Positions      []Position
+	ExchangeRates  []ExchangeRate
 }
