@@ -1,6 +1,8 @@
 // Package portfolio defines domain models used independently from IBKR and persistence DTOs.
 package portfolio
 
+// This file defines broker-independent portfolio, position, instrument, money, and exchange-rate data.
+
 import "time"
 
 // Money represents a monetary amount in a specific currency.

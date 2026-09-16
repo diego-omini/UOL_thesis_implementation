@@ -1,6 +1,8 @@
 // Package analytics calculates deterministic portfolio metrics from domain models.
 package analytics
 
+// This file computes portfolio totals, concentration measures, allocations, and data warnings.
+
 import (
 	"math"
 	"sort"
@@ -183,6 +185,7 @@ func Calculate(snapshot portfolio.Portfolio, calculatedAt time.Time) Result {
 	return result
 }
 
+// completeMarketAnalytics derives exposure-based metrics after all market values are available.
 func completeMarketAnalytics(
 	result *Result,
 	marketValues []float64,
@@ -233,6 +236,7 @@ func completeMarketAnalytics(
 	result.SectorAllocation = buildAllocations(sectorValues, result.BaseCurrency, result.GrossExposure.Amount)
 }
 
+// determineBaseCurrency resolves one safe reporting currency without mixing incompatible values.
 func determineBaseCurrency(snapshot portfolio.Portfolio) string {
 	if currency := strings.TrimSpace(snapshot.AccountSummary.NetLiquidation.Currency); currency != "" {
 		return currency
@@ -255,6 +259,7 @@ func determineBaseCurrency(snapshot portfolio.Portfolio) string {
 	return currency
 }
 
+// baseMoney selects or converts a monetary value into the account base currency.
 func baseMoney(
 	local portfolio.Money,
 	base portfolio.Money,
@@ -286,6 +291,7 @@ func baseMoney(
 	return portfolio.Money{}, false, missingBaseCode
 }
 
+// exchangeRateLookup indexes only usable rates that target the selected base currency.
 func exchangeRateLookup(rates []portfolio.ExchangeRate, baseCurrency string) map[string]portfolio.ExchangeRate {
 	lookup := make(map[string]portfolio.ExchangeRate)
 	for _, rate := range rates {
@@ -319,6 +325,7 @@ func addAllocation(values map[string]allocationValue, label string, marketValue 
 	values[label] = value
 }
 
+// buildAllocations converts grouped values into consistently ordered exposure allocations.
 func buildAllocations(values map[string]allocationValue, currency string, grossExposure float64) []Allocation {
 	allocations := make([]Allocation, 0, len(values))
 	for label, value := range values {
@@ -339,6 +346,7 @@ func buildAllocations(values map[string]allocationValue, currency string, grossE
 	return allocations
 }
 
+// buildWarnings emits accumulated data-quality warnings in a stable display order.
 func buildWarnings(counts map[string]int) []DataWarning {
 	warnings := make([]DataWarning, 0, len(counts))
 	for _, code := range warningOrder {

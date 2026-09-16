@@ -1,10 +1,26 @@
 <script lang="ts">
   // App.svelte contains the root frontend component rendered by the Wails application.
-  import { onMount } from "svelte";
-  import { CheckConnection, GetPortfolio } from '../wailsjs/go/main/App.js'
+  import { onDestroy, onMount, tick } from "svelte";
+  import {
+    ChooseGatewayDirectory,
+    GetPortfolio,
+    GetSessionStatus,
+    InitializeSession,
+    KeepSessionAlive,
+    Logout,
+    OpenIBKRLogin,
+    StartGateway,
+  } from '../wailsjs/go/main/App.js'
 
-  type ConnectionStatus = {
+  type SessionStatus = {
+    State: string
+    GatewayReachable: boolean
+    Authenticated: boolean
     Connected: boolean
+    Competing: boolean
+    Paper: boolean
+    PaperKnown: boolean
+    Ready: boolean
     Message: string
   }
 
@@ -101,48 +117,228 @@
     Empty: boolean
   }
 
-  let checking = false
+  let initializing = true
+  let authAction = false
   let loading = false
-  let status: ConnectionStatus | null = null
+  let waitingForLogin = false
+  let applicationFocused = true
+  let checkingSession = false
+  let session: SessionStatus | null = null
   let portfolio: PortfolioView | null = null
   let errorMessage = ''
+  let authenticationPoll: ReturnType<typeof setInterval> | null = null
+  let keepAliveTimer: ReturnType<typeof setInterval> | null = null
 
   onMount(() => {
-    void refreshPortfolio()
+    window.addEventListener('focus', handleWindowFocus)
+    window.addEventListener('blur', handleWindowBlur)
+    void initializeAuthentication()
   })
 
-  async function checkConnection(): Promise<void> {
-    checking = true
+  onDestroy(() => {
+    window.removeEventListener('focus', handleWindowFocus)
+    window.removeEventListener('blur', handleWindowBlur)
+    stopAuthenticationPolling()
+    stopKeepAlive()
+  })
 
-    try {
-      status = await CheckConnection()
-    } catch (error) {
-      status = {
-        Connected: false,
-        Message: `Failed to call backend: ${error}`,
+  // handleWindowFocus immediately checks IBKR after the user returns from browser authentication.
+  async function handleWindowFocus(): Promise<void> {
+    applicationFocused = true
+    if (!initializing && !session?.Ready) {
+      waitingForLogin = true
+      stopAuthenticationPolling()
+      await renderAuthenticationProgress()
+      await waitForActiveSessionRefresh()
+      await refreshSession()
+      if (!session?.Ready && applicationFocused) {
+        waitingForLogin = false
+        startAuthenticationPolling()
       }
-    } finally {
-      checking = false
     }
   }
 
+  function handleWindowBlur(): void {
+    applicationFocused = false
+    if (!session?.Ready) {
+      waitingForLogin = true
+      stopAuthenticationPolling()
+    }
+  }
+
+  async function waitForActiveSessionRefresh(): Promise<void> {
+    while (checkingSession) {
+      await new Promise(resolve => window.setTimeout(resolve, 25))
+    }
+  }
+
+  async function renderAuthenticationProgress(): Promise<void> {
+    await tick()
+    await new Promise(resolve => window.requestAnimationFrame(() => resolve(undefined)))
+  }
+
+  async function initializeAuthentication(): Promise<void> {
+    try {
+      applySession(await InitializeSession())
+    } catch (error) {
+      session = {
+        State: 'error',
+        GatewayReachable: false,
+        Authenticated: false,
+        Connected: false,
+        Competing: false,
+        Paper: false,
+        PaperKnown: false,
+        Ready: false,
+        Message: formatError(error),
+      }
+    } finally {
+      initializing = false
+    }
+  }
+
+  function applySession(next: SessionStatus): void {
+    session = next
+    if (next.Ready) {
+      waitingForLogin = false
+      errorMessage = ''
+      stopAuthenticationPolling()
+      startKeepAlive()
+      if (!portfolio && !loading) {
+        void refreshPortfolio()
+      }
+      return
+    }
+
+    portfolio = null
+    stopKeepAlive()
+    if (applicationFocused && next.State !== 'gateway_configuration_required' && next.State !== 'live_account') {
+      startAuthenticationPolling()
+    }
+  }
+
+  function startAuthenticationPolling(): void {
+    if (authenticationPoll) return
+    authenticationPoll = setInterval(() => void refreshSession(), 2000)
+  }
+
+  function stopAuthenticationPolling(): void {
+    if (!authenticationPoll) return
+    clearInterval(authenticationPoll)
+    authenticationPoll = null
+  }
+
+  function startKeepAlive(): void {
+    if (keepAliveTimer) return
+    keepAliveTimer = setInterval(() => void maintainSession(), 60000)
+  }
+
+  function stopKeepAlive(): void {
+    if (!keepAliveTimer) return
+    clearInterval(keepAliveTimer)
+    keepAliveTimer = null
+  }
+
+  async function refreshSession(): Promise<void> {
+    if (checkingSession) return
+    checkingSession = true
+    try {
+      applySession(await GetSessionStatus())
+    } catch (error) {
+      errorMessage = formatError(error)
+    } finally {
+      checkingSession = false
+    }
+  }
+
+  async function maintainSession(): Promise<void> {
+    try {
+      applySession(await KeepSessionAlive())
+    } catch (error) {
+      errorMessage = formatError(error)
+      await refreshSession()
+    }
+  }
+
+  async function chooseGatewayDirectory(): Promise<void> {
+    authAction = true
+    errorMessage = ''
+    try {
+      applySession(await ChooseGatewayDirectory())
+    } catch (error) {
+      errorMessage = formatError(error)
+    } finally {
+      authAction = false
+    }
+  }
+
+  async function startGateway(): Promise<void> {
+    authAction = true
+    errorMessage = ''
+    try {
+      applySession(await StartGateway())
+    } catch (error) {
+      errorMessage = formatError(error)
+    } finally {
+      authAction = false
+    }
+  }
+
+  async function openIBKRLogin(): Promise<void> {
+    authAction = true
+    waitingForLogin = true
+    errorMessage = ''
+    try {
+      await renderAuthenticationProgress()
+      await OpenIBKRLogin()
+    } catch (error) {
+      waitingForLogin = false
+      errorMessage = formatError(error)
+    } finally {
+      authAction = false
+    }
+  }
+
+  async function retryAuthentication(): Promise<void> {
+    authAction = true
+    errorMessage = ''
+    try {
+      applySession(await InitializeSession())
+    } catch (error) {
+      errorMessage = formatError(error)
+    } finally {
+      authAction = false
+    }
+  }
+
+  async function logout(): Promise<void> {
+    if (!window.confirm('Log out of the current IBKR session?')) return
+    authAction = true
+    errorMessage = ''
+    try {
+      portfolio = null
+      applySession(await Logout())
+    } catch (error) {
+      errorMessage = formatError(error)
+      await refreshSession()
+    } finally {
+      authAction = false
+    }
+  }
+
+  // refreshPortfolio reloads the broker snapshot and keeps connection and error state consistent.
   async function refreshPortfolio(): Promise<void> {
     loading = true
     errorMessage = ''
 
     try {
       portfolio = await GetPortfolio()
-      status = {
-        Connected: true,
-        Message: 'Gateway portfolio data was loaded'
-      }
     } catch (error) {
       portfolio = null
-      status = {
-        Connected: false,
-        Message: 'Portfolio data could not be loaded'
+      await refreshSession()
+      if (session?.Ready) {
+        errorMessage = formatError(error)
       }
-      errorMessage = formatError(error)
     } finally {
       loading = false
     }
@@ -209,29 +405,89 @@
 
     return String(error)
   }
+
+  function authenticationHeading(state: string | undefined): string {
+    switch (state) {
+      case 'gateway_configuration_required': return 'Gateway setup required'
+      case 'gateway_unavailable': return 'Gateway unavailable'
+      case 'gateway_starting': return 'Starting IBKR gateway'
+      case 'authentication_required': return 'Authentication required'
+      case 'competing_session': return 'Competing IBKR session'
+      case 'live_account': return 'Paper account required'
+      default: return 'Connection problem'
+    }
+  }
 </script>
 
-<main class="page">
+<main class:auth-page={!session?.Ready} class="page">
+  {#if initializing}
+    <section class="auth-card" aria-live="polite">
+      <h1>AI-assisted portfolio tracker</h1>
+      <p>Checking the local IBKR connection...</p>
+    </section>
+  {:else if !session?.Ready}
+    <section class="auth-card">
+      <div class="auth-heading">
+        <span class="eyebrow">Paper trading</span>
+        <h1>AI-assisted portfolio tracker</h1>
+        <p>Connect your IBKR paper account to load the portfolio dashboard.</p>
+      </div>
+
+      <div class:auth-warning={session?.State === 'live_account' || session?.State === 'competing_session'} class="auth-status" aria-live="polite">
+        <strong>{waitingForLogin ? 'Waiting for IBKR authentication' : authenticationHeading(session?.State)}</strong>
+        <span>{session?.Message || 'The current connection state is unavailable.'}</span>
+      </div>
+
+      {#if session?.State === 'gateway_configuration_required'}
+        <button class="button auth-button" disabled={authAction} on:click={chooseGatewayDirectory}>
+          {authAction ? 'Opening...' : 'Select gateway folder'}
+        </button>
+      {:else if session?.State === 'gateway_unavailable'}
+        <div class="auth-actions">
+          <button class="button auth-button" disabled={authAction} on:click={startGateway}>
+            {authAction ? 'Starting...' : 'Start IBKR gateway'}
+          </button>
+          <button class="secondary-button" disabled={authAction} on:click={chooseGatewayDirectory}>Change folder</button>
+        </div>
+      {:else if session?.State === 'gateway_starting'}
+        <button class="button auth-button" disabled>Starting gateway...</button>
+      {:else if session?.State === 'authentication_required' || session?.State === 'competing_session'}
+        {#if waitingForLogin}
+          <div class="authentication-progress" role="status" aria-live="polite">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Checking IBKR authentication...</span>
+          </div>
+        {:else}
+          <button class="button auth-button" disabled={authAction} on:click={openIBKRLogin}>
+            Log in to IBKR
+          </button>
+        {/if}
+      {:else}
+        <button class="button auth-button" disabled={authAction} on:click={retryAuthentication}>
+          {authAction ? 'Checking...' : 'Retry connection'}
+        </button>
+      {/if}
+
+      {#if errorMessage}
+        <div class="auth-error" aria-live="assertive">{errorMessage}</div>
+      {/if}
+
+      <small class="auth-note">Authentication is handled by Interactive Brokers and is limited to the paper-trading environment.</small>
+    </section>
+  {:else}
   <section class="panel">
-    <h1>IBKR connection and portfolio</h1>
+    <div>
+      <span class="eyebrow">IBKR paper trading</span>
+      <h1>Portfolio dashboard</h1>
+    </div>
 
     <div class="actions">
-      <button class="button" disabled={checking} on:click={checkConnection}>
-        {checking ? 'Checking...' : 'Check gateway connection'}
-      </button>
-
       <button class="button" disabled={loading} on:click={refreshPortfolio}>
         {loading ? 'Loading...' : 'Refresh portfolio'}
       </button>
+      <button class="secondary-button" disabled={authAction} on:click={logout}>Log out</button>
     </div>
   </section>
-
-  {#if status}
-    <section class:connected={status.Connected} class:failed={!status.Connected} class="status" aria-live="polite">
-      <strong>{status.Connected ? 'Connected' : 'Not connected'}</strong>
-      <span>{status.Message}</span>
-    </section>
-  {/if}
 
   {#if errorMessage}
     <section class="error" aria-live="assertive">
@@ -433,6 +689,7 @@
       Loading portfolio...
     </section>
   {/if}
+  {/if}
 </main>
 
 <style>
@@ -443,6 +700,122 @@
     background: #f5f7fa;
     color: #18212f;
     text-align: left;
+  }
+
+  .auth-page {
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background:
+      radial-gradient(circle at top left, rgba(31, 111, 139, 0.16), transparent 38%),
+      #f5f7fa;
+  }
+
+  .auth-card {
+    display: grid;
+    gap: 22px;
+    width: min(100%, 440px);
+    padding: 38px;
+    border: 1px solid #d8e0e8;
+    border-radius: 12px;
+    background: white;
+    box-shadow: 0 16px 45px rgba(24, 33, 47, 0.12);
+  }
+
+  .auth-heading {
+    display: grid;
+    gap: 8px;
+  }
+
+  .auth-heading h1,
+  .auth-heading p {
+    margin: 0;
+  }
+
+  .auth-heading p,
+  .auth-status span,
+  .auth-note {
+    color: #5d6a7a;
+    line-height: 1.5;
+  }
+
+  .eyebrow {
+    color: #1f6f8b;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .auth-status {
+    display: grid;
+    gap: 5px;
+    padding: 14px 16px;
+    border-left: 4px solid #1f6f8b;
+    background: #f5f9fb;
+  }
+
+  .auth-status.auth-warning {
+    border-color: #c98716;
+    background: #fffaf0;
+  }
+
+  .auth-actions {
+    display: grid;
+    gap: 10px;
+  }
+
+  .auth-button {
+    width: 100%;
+    min-height: 46px;
+  }
+
+  .authentication-progress {
+    display: flex;
+    min-height: 46px;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: #334354;
+    font-weight: 700;
+  }
+
+  .spinner {
+    width: 22px;
+    height: 22px;
+    box-sizing: border-box;
+    border: 3px solid #cbd9df;
+    border-top-color: #1f6f8b;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .secondary-button {
+    min-height: 40px;
+    padding: 0 16px;
+    border: 1px solid #b8c4cf;
+    border-radius: 4px;
+    background: white;
+    color: #293646;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .secondary-button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+
+  .auth-error {
+    color: #a62f3a;
+    font-size: 14px;
+    line-height: 1.45;
   }
 
   .panel {
@@ -485,7 +858,6 @@
     opacity: 0.65;
   }
 
-  .status,
   .error,
   .warning,
   .exchange-rates,
@@ -498,7 +870,6 @@
     margin: 0 auto 16px;
   }
 
-  .status,
   .error,
   .warning,
   .exchange-rates,
@@ -512,11 +883,6 @@
     box-shadow: 0 1px 3px rgba(24, 33, 47, 0.08);
   }
 
-  .connected {
-    border-color: #16835b;
-  }
-
-  .failed,
   .error {
     border-color: #c2414b;
   }
@@ -541,7 +907,6 @@
     color: #5d6a7a;
   }
 
-  .status span,
   .error span,
   .empty-state span {
     color: #5d6a7a;
@@ -710,6 +1075,10 @@
   @media (max-width: 780px) {
     .page {
       padding: 20px;
+    }
+
+    .auth-card {
+      padding: 28px 22px;
     }
 
     .panel,

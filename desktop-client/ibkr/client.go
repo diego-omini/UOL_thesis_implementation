@@ -1,14 +1,16 @@
-// Package ibkr contains specific implementation to connect to the ibkr gateway
-//
-// The package is responsible for http calls to ibkr and for mapping responses to broker-indipendent domain models.
+// Package ibkr implements portfolio access through the IBKR Client Portal Gateway.
 package ibkr
 
+// This file manages the IBKR session, retrieves account data, and maps responses into broker-independent domain models.
+
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -20,11 +22,13 @@ import (
 )
 
 const (
-	maxPositionPages = 100
-	ledgerRateSource = "IBKR account ledger"
+	maxPositionPages                      = 100
+	ledgerRateSource                      = "IBKR account ledger"
+	brokerageSessionInitializationTimeout = 5 * time.Second
+	brokerageSessionPollInterval          = 250 * time.Millisecond
 )
 
-// IBKR client portal gateway adapter
+// Client is the IBKR Client Portal Gateway adapter.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
@@ -32,9 +36,35 @@ type Client struct {
 
 // Information about authentication.
 type authStatusResponse struct {
-	Authenticated bool `json:"authenticated"`
-	Connected     bool `json:"connected"`
-	Competing     bool `json:"competing"`
+	Authenticated bool  `json:"authenticated"`
+	Connected     bool  `json:"connected"`
+	Competing     bool  `json:"competing"`
+	Established   *bool `json:"established"`
+}
+
+type ssoValidationResponse struct {
+	Result bool `json:"RESULT"`
+}
+
+type brokerageSessionInitRequest struct {
+	Publish bool `json:"publish"`
+	Compete bool `json:"compete"`
+}
+
+type tradingAccountsResponse struct {
+	IsPaper *bool `json:"isPaper"`
+}
+
+type logoutResponse struct {
+	Status bool `json:"status"`
+}
+
+type httpStatusError struct {
+	statusCode int
+}
+
+func (e httpStatusError) Error() string {
+	return fmt.Sprintf("gateway returned HTTP %d", e.statusCode)
 }
 
 // Mirror for entries returned by /portfolio/accounts.
@@ -92,12 +122,13 @@ type positionResponse struct {
 }
 
 // IBKR returns numbers as JSON numbers, strings, empty string, or null.
-// Using this struct keeps the mapper simplier.
+// Using this struct keeps response mapping independent of IBKR's numeric representation.
 type decimalNumber struct {
 	value float64
 	valid bool
 }
 
+// UnmarshalJSON accepts the numeric, string, empty, and null representations returned by IBKR.
 func (n *decimalNumber) UnmarshalJSON(data []byte) error {
 	text := strings.TrimSpace(string(data))
 
@@ -162,36 +193,194 @@ func NewClient(baseURL string, skipTLSVerify bool) *Client {
 
 // CheckConnection checks that the gateway is reachable and authenticated.
 func (c *Client) CheckConnection(ctx context.Context) broker.ConnectionStatus {
-	var status authStatusResponse
+	status := c.CheckSession(ctx)
+	return broker.ConnectionStatus{Connected: status.Ready(), Message: status.Message}
+}
 
-	if err := c.getJSON(ctx, "/iserver/auth/status", &status); err != nil {
-		return broker.ConnectionStatus{
-			Connected: false,
-			Message:   fmt.Sprintf("IBKR gateway authentication check failed: %v", err),
+// CheckSession verifies gateway authentication and rejects sessions that are not explicitly marked as paper trading.
+func (c *Client) CheckSession(ctx context.Context) broker.SessionStatus {
+	var sso ssoValidationResponse
+	if err := c.getJSON(ctx, "/sso/validate", &sso); err != nil {
+		return sessionRequestFailure(err, "IBKR browser session validation failed")
+	}
+	if !sso.Result {
+		return broker.SessionStatus{
+			State:            broker.SessionAuthenticationRequired,
+			GatewayReachable: true,
+			Message:          "Authenticate through the IBKR Client Portal Gateway",
 		}
 	}
 
-	if status.Competing {
-		return broker.ConnectionStatus{
-			Connected: false,
-			Message:   "IBKR session is competing with another active session",
+	var authentication authStatusResponse
+	if err := c.postJSON(ctx, "/iserver/auth/status", &authentication); err != nil {
+		return sessionRequestFailure(err, "IBKR gateway authentication check failed")
+	}
+
+	if !brokerageSessionReady(authentication) && !authentication.Competing {
+		initialized, err := c.initializeBrokerageSession(ctx)
+		if err != nil {
+			return sessionRequestFailure(err, "IBKR brokerage session initialization failed")
+		}
+		authentication = initialized
+	}
+
+	if authentication.Competing {
+		return broker.SessionStatus{
+			State:            broker.SessionCompeting,
+			GatewayReachable: true,
+			Connected:        authentication.Connected,
+			Competing:        true,
+			Message:          "This IBKR username has an active brokerage session elsewhere",
 		}
 	}
 
-	if status.Authenticated && status.Connected {
-		return broker.ConnectionStatus{
-			Connected: true,
-			Message:   "IBKR gateway is reachable and authenticated",
+	if !brokerageSessionReady(authentication) {
+		return broker.SessionStatus{
+			State:            broker.SessionError,
+			GatewayReachable: true,
+			Authenticated:    authentication.Authenticated,
+			Connected:        authentication.Connected,
+			Message:          "The IBKR browser login succeeded, but the brokerage session did not become ready",
 		}
 	}
 
-	return broker.ConnectionStatus{
-		Connected: false,
-		Message:   "IBKR gateway is reachable but not authenticated",
+	var accounts tradingAccountsResponse
+	if err := c.getJSON(ctx, "/iserver/accounts", &accounts); err != nil {
+		var statusErr httpStatusError
+		if errors.As(err, &statusErr) && statusErr.statusCode == http.StatusUnauthorized {
+			return broker.SessionStatus{
+				State:            broker.SessionAuthenticationRequired,
+				GatewayReachable: true,
+				Message:          "The IBKR session is no longer authenticated",
+			}
+		}
+		return broker.SessionStatus{
+			State:            broker.SessionError,
+			GatewayReachable: true,
+			Authenticated:    true,
+			Connected:        true,
+			Message:          fmt.Sprintf("IBKR account validation failed: %v", err),
+		}
+	}
+
+	if accounts.IsPaper == nil {
+		return broker.SessionStatus{
+			State:            broker.SessionError,
+			GatewayReachable: true,
+			Authenticated:    true,
+			Connected:        true,
+			Message:          "IBKR did not report whether this is a paper-trading session",
+		}
+	}
+
+	if !*accounts.IsPaper {
+		return broker.SessionStatus{
+			State:            broker.SessionLiveAccount,
+			GatewayReachable: true,
+			Authenticated:    true,
+			Connected:        true,
+			PaperKnown:       true,
+			Message:          "This application only supports IBKR paper-trading sessions",
+		}
+	}
+
+	return broker.SessionStatus{
+		State:            broker.SessionAuthenticated,
+		GatewayReachable: true,
+		Authenticated:    true,
+		Connected:        true,
+		Paper:            true,
+		PaperKnown:       true,
+		Message:          "IBKR paper-trading session is authenticated",
 	}
 }
 
-// FetchPortfolio fetches and maps the paper account info to domain models.
+// initializeBrokerageSession starts a non-competing brokerage session and waits for account services to become ready.
+func (c *Client) initializeBrokerageSession(ctx context.Context) (authStatusResponse, error) {
+	var status authStatusResponse
+	err := c.postJSONBody(ctx, "/iserver/auth/ssodh/init", brokerageSessionInitRequest{
+		Publish: true,
+		Compete: false,
+	}, &status)
+	if err != nil {
+		return authStatusResponse{}, err
+	}
+	if brokerageSessionReady(status) || status.Competing {
+		return status, nil
+	}
+
+	pollCtx, cancel := context.WithTimeout(ctx, brokerageSessionInitializationTimeout)
+	defer cancel()
+	ticker := time.NewTicker(brokerageSessionPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-pollCtx.Done():
+			return status, nil
+		case <-ticker.C:
+			if err := c.postJSON(pollCtx, "/iserver/auth/status", &status); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+					return status, nil
+				}
+				return authStatusResponse{}, err
+			}
+			if brokerageSessionReady(status) || status.Competing {
+				return status, nil
+			}
+		}
+	}
+}
+
+func brokerageSessionReady(status authStatusResponse) bool {
+	established := status.Established == nil || *status.Established
+	return status.Authenticated && status.Connected && established
+}
+
+// KeepAlive prevents an active gateway session from expiring and returns its current status.
+func (c *Client) KeepAlive(ctx context.Context) broker.SessionStatus {
+	if err := c.postJSON(ctx, "/tickle", nil); err != nil {
+		return sessionRequestFailure(err, "IBKR session keep-alive failed")
+	}
+	return c.CheckSession(ctx)
+}
+
+// Logout ends the current IBKR gateway session.
+func (c *Client) Logout(ctx context.Context) error {
+	var response logoutResponse
+	if err := c.postJSON(ctx, "/logout", &response); err != nil {
+		return fmt.Errorf("IBKR logout failed: %w", err)
+	}
+	if !response.Status {
+		return errors.New("IBKR did not confirm that the session was logged out")
+	}
+	return nil
+}
+
+func sessionRequestFailure(err error, message string) broker.SessionStatus {
+	var statusErr httpStatusError
+	if errors.As(err, &statusErr) {
+		if statusErr.statusCode == http.StatusUnauthorized {
+			return broker.SessionStatus{
+				State:            broker.SessionAuthenticationRequired,
+				GatewayReachable: true,
+				Message:          "The IBKR session is no longer authenticated",
+			}
+		}
+		return broker.SessionStatus{
+			State:            broker.SessionError,
+			GatewayReachable: true,
+			Message:          fmt.Sprintf("%s: %v", message, err),
+		}
+	}
+
+	return broker.SessionStatus{
+		State:   broker.SessionGatewayUnavailable,
+		Message: fmt.Sprintf("%s: %v", message, err),
+	}
+}
+
+// FetchPortfolio coordinates account, summary, exchange-rate, and position retrieval.
 func (c *Client) FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error) {
 	account, err := c.fetchAccount(ctx)
 
@@ -228,7 +417,7 @@ func (c *Client) FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error
 	}, nil
 }
 
-// fetchAccount retrieves account from /portfolio/accounts.
+// fetchAccount selects the first available account for the application's single-account scope.
 func (c *Client) fetchAccount(ctx context.Context) (accountResponse, error) {
 	var accounts []accountResponse
 
@@ -249,7 +438,7 @@ func (c *Client) fetchAccount(ctx context.Context) (accountResponse, error) {
 	return account, nil
 }
 
-// fetchAccountSummary retrieves account infos.
+// fetchAccountSummary retrieves the account values needed by the portfolio view.
 func (c *Client) fetchAccountSummary(ctx context.Context, account accountResponse) (portfolio.AccountSummary, error) {
 	var response map[string]summaryValueResponse
 
@@ -278,6 +467,7 @@ func (c *Client) fetchAccountSummary(ctx context.Context, account accountRespons
 	}, nil
 }
 
+// fetchExchangeRates normalizes ledger rates and adds the identity rate for the base currency.
 func (c *Client) fetchExchangeRates(
 	ctx context.Context,
 	account accountResponse,
@@ -334,6 +524,7 @@ func (c *Client) fetchExchangeRates(
 	return rates, nil
 }
 
+// ledgerTime accepts IBKR timestamps in seconds or milliseconds and falls back to retrieval time.
 func ledgerTime(timestamp int64, fallback time.Time) time.Time {
 	if timestamp <= 0 {
 		return fallback.UTC()
@@ -372,6 +563,7 @@ func (c *Client) fetchPositions(ctx context.Context, account accountResponse) ([
 	return nil, fmt.Errorf("position response exceeded the %d-page safety limit", maxPositionPages)
 }
 
+// hasMorePositionPages applies IBKR page-size metadata while tolerating responses that omit it.
 func hasMorePositionPages(responses []positionResponse) bool {
 	if len(responses) == 0 {
 		return false
@@ -386,12 +578,37 @@ func hasMorePositionPages(responses []positionResponse) bool {
 	return true
 }
 
-// getJSON centralizes basic gateway http handling.
+// getJSON centralizes authenticated gateway GET handling and response decoding.
 func (c *Client) getJSON(ctx context.Context, path string, target any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	return c.requestJSON(ctx, http.MethodGet, path, nil, target)
+}
+
+func (c *Client) postJSON(ctx context.Context, path string, target any) error {
+	return c.requestJSON(ctx, http.MethodPost, path, nil, target)
+}
+
+func (c *Client) postJSONBody(ctx context.Context, path string, body, target any) error {
+	return c.requestJSON(ctx, http.MethodPost, path, body, target)
+}
+
+// requestJSON centralizes gateway request handling and optional response decoding.
+func (c *Client) requestJSON(ctx context.Context, method, path string, body, target any) error {
+	var encodedBody io.Reader
+	if body != nil {
+		contents, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("failed to encode request body: %w", err)
+		}
+		encodedBody = bytes.NewReader(contents)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, encodedBody)
 
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -402,9 +619,13 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("gateway returned HTTP %d", resp.StatusCode)
+		return httpStatusError{statusCode: resp.StatusCode}
 	}
 
+	if target == nil {
+		_, err := io.Copy(io.Discard, resp.Body)
+		return err
+	}
 	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
@@ -412,7 +633,7 @@ func (c *Client) getJSON(ctx context.Context, path string, target any) error {
 	return nil
 }
 
-// mapPosition converts IBKR data to broker-indipendent model.
+// mapPosition converts an IBKR position response into the broker-independent domain model.
 func mapPosition(response positionResponse, fallbackCurrency string) portfolio.Position {
 	currency := firstNonEmpty(response.Currency, fallbackCurrency)
 
@@ -448,7 +669,7 @@ func decimalMoney(value decimalNumber, currency string) portfolio.Money {
 	}
 }
 
-// summaryMoney returns information about account balance
+// summaryMoney resolves alternate IBKR summary keys into one normalized monetary value.
 func summaryMoney(values map[string]summaryValueResponse, fallbackCurrency string, keys ...string) portfolio.Money {
 	for _, key := range keys {
 		value, ok := values[key]
@@ -495,7 +716,7 @@ func parseDecimalString(value string) (float64, bool) {
 	return parsed, true
 }
 
-// firstNonEmpty returns the first element that has an assigned value
+// firstNonEmpty returns the first non-blank string.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		trimmed := strings.TrimSpace(value)

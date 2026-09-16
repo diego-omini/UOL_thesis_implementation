@@ -4,4 +4,18 @@ import {main} from '../models';
 
 export function CheckConnection():Promise<main.ConnectionStatusView>;
 
+export function ChooseGatewayDirectory():Promise<main.SessionStatusView>;
+
 export function GetPortfolio():Promise<main.PortfolioView>;
+
+export function GetSessionStatus():Promise<main.SessionStatusView>;
+
+export function InitializeSession():Promise<main.SessionStatusView>;
+
+export function KeepSessionAlive():Promise<main.SessionStatusView>;
+
+export function Logout():Promise<main.SessionStatusView>;
+
+export function OpenIBKRLogin():Promise<void>;
+
+export function StartGateway():Promise<main.SessionStatusView>;

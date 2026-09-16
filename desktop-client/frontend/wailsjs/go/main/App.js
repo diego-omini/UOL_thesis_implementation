@@ -6,6 +6,34 @@ export function CheckConnection() {
   return window['go']['main']['App']['CheckConnection']();
 }
 
+export function ChooseGatewayDirectory() {
+  return window['go']['main']['App']['ChooseGatewayDirectory']();
+}
+
 export function GetPortfolio() {
   return window['go']['main']['App']['GetPortfolio']();
+}
+
+export function GetSessionStatus() {
+  return window['go']['main']['App']['GetSessionStatus']();
+}
+
+export function InitializeSession() {
+  return window['go']['main']['App']['InitializeSession']();
+}
+
+export function KeepSessionAlive() {
+  return window['go']['main']['App']['KeepSessionAlive']();
+}
+
+export function Logout() {
+  return window['go']['main']['App']['Logout']();
+}
+
+export function OpenIBKRLogin() {
+  return window['go']['main']['App']['OpenIBKRLogin']();
+}
+
+export function StartGateway() {
+  return window['go']['main']['App']['StartGateway']();
 }

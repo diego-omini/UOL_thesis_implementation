@@ -1,5 +1,7 @@
 package analytics
 
+// analytics_test.go verifies portfolio analytics, currency conversion, and warning behavior.
+
 import (
 	"math"
 	"testing"

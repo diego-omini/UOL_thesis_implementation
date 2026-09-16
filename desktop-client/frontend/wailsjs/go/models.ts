@@ -357,6 +357,35 @@ export namespace main {
 	}
 	
 	
+	
+	export class SessionStatusView {
+	    State: string;
+	    GatewayReachable: boolean;
+	    Authenticated: boolean;
+	    Connected: boolean;
+	    Competing: boolean;
+	    Paper: boolean;
+	    PaperKnown: boolean;
+	    Ready: boolean;
+	    Message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionStatusView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.State = source["State"];
+	        this.GatewayReachable = source["GatewayReachable"];
+	        this.Authenticated = source["Authenticated"];
+	        this.Connected = source["Connected"];
+	        this.Competing = source["Competing"];
+	        this.Paper = source["Paper"];
+	        this.PaperKnown = source["PaperKnown"];
+	        this.Ready = source["Ready"];
+	        this.Message = source["Message"];
+	    }
+	}
 
 }
 

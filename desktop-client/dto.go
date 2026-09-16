@@ -1,15 +1,29 @@
-// Wails-facing types definition
 package main
+
+// dto.go defines Wails-facing view models and maps domain results into them.
 
 import (
 	"time"
 	"wails/analytics"
+	"wails/broker"
 	"wails/portfolio"
 )
 
 type ConnectionStatusView struct {
 	Connected bool
 	Message   string
+}
+
+type SessionStatusView struct {
+	State            string
+	GatewayReachable bool
+	Authenticated    bool
+	Connected        bool
+	Competing        bool
+	Paper            bool
+	PaperKnown       bool
+	Ready            bool
+	Message          string
 }
 
 type MoneyView struct {
@@ -109,6 +123,21 @@ func toConnectionStatusView(status bool, message string) ConnectionStatusView {
 	return ConnectionStatusView{Connected: status, Message: message}
 }
 
+func toSessionStatusView(status broker.SessionStatus) SessionStatusView {
+	return SessionStatusView{
+		State:            string(status.State),
+		GatewayReachable: status.GatewayReachable,
+		Authenticated:    status.Authenticated,
+		Connected:        status.Connected,
+		Competing:        status.Competing,
+		Paper:            status.Paper,
+		PaperKnown:       status.PaperKnown,
+		Ready:            status.Ready(),
+		Message:          status.Message,
+	}
+}
+
+// toPortfolioView assembles the complete frontend payload from portfolio and analytics domain results.
 func toPortfolioView(p portfolio.Portfolio, result analytics.Result) PortfolioView {
 	positions := make([]PositionView, 0, len(p.Positions))
 
@@ -151,6 +180,7 @@ func toRatioView(ratio analytics.Ratio) RatioView {
 	return RatioView{Value: ratio.Value, Available: ratio.Available}
 }
 
+// toAnalyticsView maps the complete analytics result into Wails-safe view models.
 func toAnalyticsView(result analytics.Result) AnalyticsView {
 	return AnalyticsView{
 		CalculatedAt:          result.CalculatedAt.Format(time.RFC3339),

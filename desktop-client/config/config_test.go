@@ -1,5 +1,7 @@
 package config
 
+// config_test.go verifies configuration defaults, environment overrides, and validation failures.
+
 import "testing"
 
 func TestLoadDefaults(t *testing.T) {
@@ -18,6 +20,7 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadEnvironmentOverrides(t *testing.T) {
 	t.Setenv(ibkrBaseURLEnv, "https://gateway.example.test/v1/api")
 	t.Setenv(ibkrSkipTLSVerifyEnv, "false")
+	t.Setenv(ibkrGatewayDirEnv, `C:\ibkr\clientportal.gw`)
 
 	cfg, err := Load()
 	if err != nil {
@@ -30,11 +33,15 @@ func TestLoadEnvironmentOverrides(t *testing.T) {
 	if cfg.IBKR.SkipTLSVerifyLocal {
 		t.Fatal("TLS verification override was not applied")
 	}
+	if cfg.IBKR.GatewayDirectory != `C:\ibkr\clientportal.gw` {
+		t.Fatalf("unexpected gateway directory: %s", cfg.IBKR.GatewayDirectory)
+	}
 }
 
 func TestLoadRejectsInvalidValues(t *testing.T) {
 	t.Run("base URL", func(t *testing.T) {
 		t.Setenv(ibkrBaseURLEnv, "localhost:5000")
+		t.Setenv(ibkrGatewayDirEnv, "")
 
 		if _, err := Load(); err == nil {
 			t.Fatal("expected invalid base URL to return an error")
@@ -43,6 +50,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 
 	t.Run("TLS flag", func(t *testing.T) {
 		t.Setenv(ibkrSkipTLSVerifyEnv, "sometimes")
+		t.Setenv(ibkrGatewayDirEnv, "")
 
 		if _, err := Load(); err == nil {
 			t.Fatal("expected invalid TLS flag to return an error")

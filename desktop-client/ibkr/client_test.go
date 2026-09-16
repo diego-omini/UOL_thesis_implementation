@@ -1,5 +1,7 @@
 package ibkr
 
+// client_test.go verifies IBKR response decoding, mapping, pagination, and exchange-rate behavior.
+
 import (
 	"context"
 	"encoding/json"
@@ -7,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"wails/broker"
 )
 
 func TestFetchPortfolioDoesNotRequireTradingSession(t *testing.T) {
@@ -82,6 +85,138 @@ func TestFetchPortfolioDoesNotRequireTradingSession(t *testing.T) {
 	}
 	if usdRate.Source != ledgerRateSource || usdRate.AsOf.Unix() != 1788768000 {
 		t.Fatalf("unexpected exchange-rate metadata: %#v", usdRate)
+	}
+}
+
+func TestCheckSessionAcceptsOnlyPaperTrading(t *testing.T) {
+	tests := []struct {
+		name          string
+		ssoResponse   string
+		authResponse  string
+		paperResponse string
+		wantState     broker.SessionState
+		wantReady     bool
+	}{
+		{
+			name:          "authenticated paper session",
+			ssoResponse:   `{"RESULT":true,"LOGIN_TYPE":1}`,
+			authResponse:  `{"authenticated":true,"connected":true,"competing":false}`,
+			paperResponse: `{"isPaper":true}`,
+			wantState:     broker.SessionAuthenticated,
+			wantReady:     true,
+		},
+		{
+			name:          "live session",
+			ssoResponse:   `{"RESULT":true,"LOGIN_TYPE":2}`,
+			authResponse:  `{"authenticated":true,"connected":true,"competing":false}`,
+			paperResponse: `{"isPaper":false}`,
+			wantState:     broker.SessionLiveAccount,
+		},
+		{
+			name:        "authentication required",
+			ssoResponse: `{"RESULT":false}`,
+			wantState:   broker.SessionAuthenticationRequired,
+		},
+		{
+			name:         "competing session",
+			ssoResponse:  `{"RESULT":true,"LOGIN_TYPE":2}`,
+			authResponse: `{"authenticated":false,"connected":true,"competing":true}`,
+			wantState:    broker.SessionCompeting,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/sso/validate":
+					_, _ = w.Write([]byte(test.ssoResponse))
+				case "/iserver/auth/status":
+					if r.Method != http.MethodPost {
+						http.Error(w, "authentication status must use POST", http.StatusMethodNotAllowed)
+						return
+					}
+					_, _ = w.Write([]byte(test.authResponse))
+				case "/iserver/accounts":
+					_, _ = w.Write([]byte(test.paperResponse))
+				default:
+					http.Error(w, "unexpected request", http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			status := NewClient(server.URL, false).CheckSession(context.Background())
+			if status.State != test.wantState {
+				t.Fatalf("state = %q, want %q (%s)", status.State, test.wantState, status.Message)
+			}
+			if status.Ready() != test.wantReady {
+				t.Fatalf("Ready() = %t, want %t", status.Ready(), test.wantReady)
+			}
+		})
+	}
+}
+
+func TestCheckSessionInitializesBrokerageSession(t *testing.T) {
+	statusCalls := 0
+	initCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/sso/validate":
+			_, _ = w.Write([]byte(`{"RESULT":true,"LOGIN_TYPE":2}`))
+		case "/iserver/auth/status":
+			statusCalls++
+			if statusCalls == 1 {
+				_, _ = w.Write([]byte(`{"authenticated":false,"connected":true,"competing":false}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"authenticated":true,"connected":true,"competing":false,"established":true}`))
+		case "/iserver/auth/ssodh/init":
+			initCalls++
+			var request brokerageSessionInitRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if !request.Publish || request.Compete {
+				http.Error(w, "unexpected brokerage initialization options", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte(`{"authenticated":false,"connected":true,"competing":false,"established":false}`))
+		case "/iserver/accounts":
+			_, _ = w.Write([]byte(`{"isPaper":true}`))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	status := NewClient(server.URL, false).CheckSession(context.Background())
+	if !status.Ready() {
+		t.Fatalf("session was not ready after initialization: %#v", status)
+	}
+	if initCalls != 1 {
+		t.Fatalf("brokerage initialization calls = %d, want 1", initCalls)
+	}
+	if statusCalls < 2 {
+		t.Fatalf("authentication status calls = %d, want at least 2", statusCalls)
+	}
+}
+
+func TestLogoutPostsToGateway(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/logout" || r.Method != http.MethodPost {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":true}`))
+	}))
+	defer server.Close()
+
+	if err := NewClient(server.URL, false).Logout(context.Background()); err != nil {
+		t.Fatalf("Logout() returned an error: %v", err)
 	}
 }
 

@@ -1,4 +1,7 @@
+// Package main runs the Wails desktop client and exposes backend operations to its frontend.
 package main
+
+// main.go embeds the frontend assets and starts the configured Wails desktop application.
 
 import (
 	"embed"
@@ -11,17 +14,16 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// main constructs the application backend and starts the Wails runtime.
 func main() {
-	// Create an instance of the app structure
 	app, err := NewApp()
 	if err != nil {
 		println("Error:", err.Error())
 		return
 	}
 
-	// Create application with options
 	err = wails.Run(&options.App{
-		Title:  "wails",
+		Title:  "AI-assisted portfolio tracker",
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{

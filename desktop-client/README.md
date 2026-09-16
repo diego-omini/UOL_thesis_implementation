@@ -1,6 +1,6 @@
 # Desktop client
 
-The application connects to an authenticated Interactive Brokers Client Portal Gateway session, retrieves the paper account summary and all open positions, and calculates portfolio allocation and concentration metrics.
+The application starts and monitors a local Interactive Brokers Client Portal Gateway, verifies that its authenticated session is for paper trading, retrieves the account summary and all open positions, and calculates portfolio allocation and concentration metrics.
 
 Only paper trading is within scope. The current version uses the first account returned by the gateway.
 
@@ -15,17 +15,13 @@ Only paper trading is within scope. The current version uses the first account r
 
 The gateway can be downloaded from the [Interactive Brokers API page](https://www.interactivebrokers.com/en/trading/ib-api.php).
 
-## Start the Client Portal Gateway
+## Configure IBKR authentication
 
-Open PowerShell in the extracted gateway directory and run:
+Start the application and select the extracted `clientportal.gw` directory when prompted. The directory must contain `bin\run.bat` and `root\conf.yaml`. Its location is stored in the current user's application configuration and is not a credential.
 
-```powershell
-.\bin\run.bat root\conf.yaml
-```
+When the gateway is unavailable, the application starts it in the background. Select **Log in to IBKR** to open the IBKR-hosted gateway page in the system browser, accept the local certificate warning if required, and authenticate with the paper-trading account. The dashboard opens automatically after the gateway reports an authenticated paper session.
 
-Wait until the console reports that the server is listening on port 5000. Open [https://localhost:5000](https://localhost:5000) in a browser, accept the local certificate warning if required, and authenticate with the paper-trading account.
-
-The browser can be closed after the gateway confirms authentication. Keep the gateway process running while using the application.
+IBKR requires browser authentication at least daily and does not support automated Client Portal Gateway login. While the application is open, it sends a keep-alive request approximately once per minute to avoid the shorter inactivity timeout. Use **Log out** to explicitly end the gateway session.
 
 ## Run the application
 
@@ -35,7 +31,7 @@ From this directory:
 wails dev
 ```
 
-The application automatically attempts to load the portfolio when it starts. Use **Check gateway connection** to inspect the session state and **Refresh portfolio** to retrieve the latest account values and positions.
+The application automatically starts or reconnects to the configured gateway and loads the portfolio after authentication. Use **Refresh portfolio** to retrieve the latest account values and positions.
 
 ## Configuration
 
@@ -45,12 +41,14 @@ The default settings target the local Client Portal Gateway:
 | --- | --- | --- |
 | `IBKR_BASE_URL` | `https://localhost:5000/v1/api` | Client Portal Gateway API base URL |
 | `IBKR_SKIP_TLS_VERIFY` | `true` | Accept the gateway's local self-signed certificate |
+| `IBKR_GATEWAY_DIR` | Stored first-run selection | Extracted `clientportal.gw` directory |
 
 Override a setting in PowerShell before starting Wails:
 
 ```powershell
 $env:IBKR_BASE_URL = "https://localhost:5000/v1/api"
 $env:IBKR_SKIP_TLS_VERIFY = "true"
+$env:IBKR_GATEWAY_DIR = "C:\path\to\clientportal.gw"
 wails dev
 ```
 
@@ -85,14 +83,16 @@ wails build
 
 ## Common connection states
 
-- **Gateway is not reachable:** start the Client Portal Gateway and verify that port 5000 is available.
-- **Gateway is reachable but not authenticated:** open `https://localhost:5000` and complete the paper-account login.
+- **Gateway location required:** select the extracted `clientportal.gw` directory or set `IBKR_GATEWAY_DIR`.
+- **Gateway is not reachable:** retry automatic startup, verify the configured directory, and confirm that port 5000 is available.
+- **Gateway is reachable but not authenticated:** select **Log in to IBKR** and complete the paper-account login in the browser.
 - **Competing session:** sign out of another active IBKR brokerage session or wait for that session to end, then authenticate again.
-- **Session expired:** authenticate through the gateway browser page again and refresh the portfolio.
+- **Live account session:** log out and authenticate with the paper-trading username; the application refuses access when IBKR does not report `isPaper: true`.
+- **Session expired:** the application returns to the authentication page; log in again and the portfolio reloads automatically.
 
 ## Current limitations
 
 - The first account returned by `/portfolio/accounts` is used.
 - Account selection is not yet exposed in the interface.
-- The application depends on the locally authenticated gateway session.
+- The application depends on IBKR's locally installed gateway and mandatory browser authentication.
 - Historical portfolio snapshots, the AI counselor, and manual paper orders are not implemented yet.
