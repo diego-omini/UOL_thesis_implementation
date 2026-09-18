@@ -1,5 +1,25 @@
 export namespace main {
 	
+	export class AIResponseView {
+	    Text: string;
+	    Provider: string;
+	    Model: string;
+	    PromptID: string;
+	    PromptVersion: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AIResponseView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Text = source["Text"];
+	        this.Provider = source["Provider"];
+	        this.Model = source["Model"];
+	        this.PromptID = source["PromptID"];
+	        this.PromptVersion = source["PromptVersion"];
+	    }
+	}
 	export class MoneyView {
 	    Amount: number;
 	    Currency: string;

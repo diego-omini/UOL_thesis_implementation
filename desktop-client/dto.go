@@ -4,6 +4,7 @@ package main
 
 import (
 	"time"
+
 	"wails/analytics"
 	"wails/broker"
 	"wails/portfolio"
@@ -117,6 +118,14 @@ type PortfolioView struct {
 	Positions      []PositionView
 	Analytics      AnalyticsView
 	Empty          bool
+}
+
+type AIResponseView struct {
+	Text          string
+	Provider      string
+	Model         string
+	PromptID      string
+	PromptVersion int
 }
 
 func toConnectionStatusView(status bool, message string) ConnectionStatusView {

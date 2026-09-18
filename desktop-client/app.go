@@ -8,11 +8,14 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"wails/ai"
 	"wails/analytics"
 	"wails/broker"
 	"wails/config"
 	"wails/gateway"
 	"wails/ibkr"
+	"wails/portfolio"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -24,6 +27,8 @@ type App struct {
 	portfolioBroker broker.PortfolioProvider
 	sessionBroker   broker.SessionProvider
 	gateway         *gateway.Controller
+	aiCounselor     *ai.Counselor
+	aiProviderName  string
 }
 
 // NewApp creates the Wails application object.
@@ -37,11 +42,33 @@ func NewApp() (*App, error) {
 		cfg.IBKR.BaseURL,
 		cfg.IBKR.SkipTLSVerifyLocal,
 	)
+
+	var aiProvider ai.Provider
+	switch cfg.AI.Provider {
+	case "ollama":
+		aiProvider = ai.NewOllamaProvider(cfg.AI.BaseURL, cfg.AI.Model)
+	default:
+		return nil, fmt.Errorf("unsupported AI provider %q", cfg.AI.Provider)
+	}
+	promptCatalog, err := ai.NewCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load prompt catalog: %w", err)
+	}
+	promptExecutor := ai.NewExecutor(promptCatalog, aiProvider)
+	researchProvider := ai.NewOllamaResearchProvider(cfg.AI.SearchBaseURL, cfg.AI.SearchAPIKey)
+	researchTools := ai.NewResearchToolsFactory(
+		researchProvider,
+		cfg.AI.SearchAllowedDomains,
+		cfg.AI.SearchMaxResults,
+	)
+
 	return &App{
 		cfg:             cfg,
 		portfolioBroker: client,
 		sessionBroker:   client,
 		gateway:         gateway.NewController(cfg.IBKR.GatewayDirectory),
+		aiCounselor:     ai.NewCounselor(promptExecutor, researchTools),
+		aiProviderName:  cfg.AI.Provider,
 	}, nil
 }
 
@@ -178,20 +205,48 @@ func (a *App) Logout() (SessionStatusView, error) {
 
 // GetPortfolio fetches the current broker portfolio and returns its deterministic analytics.
 func (a *App) GetPortfolio() (PortfolioView, error) {
-	ctx := a.context()
-	status := a.sessionBroker.CheckSession(ctx)
-	if !status.Ready() {
-		return PortfolioView{}, fmt.Errorf("portfolio access requires an authenticated IBKR paper session: %s", status.Message)
-	}
-
-	portfolioSnapshot, err := a.portfolioBroker.FetchPortfolio(ctx)
-
+	portfolioSnapshot, err := a.fetchPortfolio()
 	if err != nil {
-		return PortfolioView{}, fmt.Errorf("failed to fetch portfolio: %w", err)
+		return PortfolioView{}, err
 	}
 
 	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
 	return toPortfolioView(portfolioSnapshot, portfolioAnalytics), nil
+}
+
+// GetPortfolioResume generates a read-only summary from the latest normalized positions.
+func (a *App) GetPortfolioResume() (AIResponseView, error) {
+	portfolioSnapshot, err := a.fetchPortfolio()
+	if err != nil {
+		return AIResponseView{}, err
+	}
+
+	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
+	response, err := a.aiCounselor.PortfolioResume(a.context(), portfolioSnapshot, portfolioAnalytics)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("portfolio summary failed: %w", err)
+	}
+	return AIResponseView{
+		Text:          response.Text,
+		Provider:      a.aiProviderName,
+		Model:         response.Model,
+		PromptID:      response.PromptID,
+		PromptVersion: response.PromptVersion,
+	}, nil
+}
+
+func (a *App) fetchPortfolio() (portfolio.Portfolio, error) {
+	ctx := a.context()
+	status := a.sessionBroker.CheckSession(ctx)
+	if !status.Ready() {
+		return portfolio.Portfolio{}, fmt.Errorf("portfolio access requires an authenticated IBKR paper session: %s", status.Message)
+	}
+
+	portfolioSnapshot, err := a.portfolioBroker.FetchPortfolio(ctx)
+	if err != nil {
+		return portfolio.Portfolio{}, fmt.Errorf("failed to fetch portfolio: %w", err)
+	}
+	return portfolioSnapshot, nil
 }
 
 func (a *App) context() context.Context {

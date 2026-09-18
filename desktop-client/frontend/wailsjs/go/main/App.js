@@ -14,6 +14,10 @@ export function GetPortfolio() {
   return window['go']['main']['App']['GetPortfolio']();
 }
 
+export function GetPortfolioResume() {
+  return window['go']['main']['App']['GetPortfolioResume']();
+}
+
 export function GetSessionStatus() {
   return window['go']['main']['App']['GetSessionStatus']();
 }

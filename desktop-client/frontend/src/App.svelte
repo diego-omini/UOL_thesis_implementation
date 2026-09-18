@@ -1,9 +1,12 @@
 <script lang="ts">
   // App.svelte contains the root frontend component rendered by the Wails application.
+  import DOMPurify from 'dompurify'
+  import { marked } from 'marked'
   import { onDestroy, onMount, tick } from "svelte";
   import {
     ChooseGatewayDirectory,
     GetPortfolio,
+    GetPortfolioResume,
     GetSessionStatus,
     InitializeSession,
     KeepSessionAlive,
@@ -117,6 +120,14 @@
     Empty: boolean
   }
 
+  type AIResponseView = {
+    Text: string
+    Provider: string
+    Model: string
+    PromptID: string
+    PromptVersion: number
+  }
+
   let initializing = true
   let authAction = false
   let loading = false
@@ -125,6 +136,9 @@
   let checkingSession = false
   let session: SessionStatus | null = null
   let portfolio: PortfolioView | null = null
+  let portfolioResume: AIResponseView | null = null
+  let portfolioResumeError = ''
+  let portfolioResumeLoading = false
   let errorMessage = ''
   let authenticationPoll: ReturnType<typeof setInterval> | null = null
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null
@@ -211,6 +225,8 @@
     }
 
     portfolio = null
+    portfolioResume = null
+    portfolioResumeError = ''
     stopKeepAlive()
     if (applicationFocused && next.State !== 'gateway_configuration_required' && next.State !== 'live_account') {
       startAuthenticationPolling()
@@ -317,6 +333,8 @@
     errorMessage = ''
     try {
       portfolio = null
+      portfolioResume = null
+      portfolioResumeError = ''
       applySession(await Logout())
     } catch (error) {
       errorMessage = formatError(error)
@@ -330,6 +348,8 @@
   async function refreshPortfolio(): Promise<void> {
     loading = true
     errorMessage = ''
+    portfolioResume = null
+    portfolioResumeError = ''
 
     try {
       portfolio = await GetPortfolio()
@@ -342,6 +362,27 @@
     } finally {
       loading = false
     }
+  }
+
+  // getPortfolioResume requests a fresh backend-owned snapshot and shows provider errors separately.
+  async function getPortfolioResume(): Promise<void> {
+    portfolioResumeLoading = true
+    portfolioResume = null
+    portfolioResumeError = ''
+
+    try {
+      portfolioResume = await GetPortfolioResume()
+    } catch (error) {
+      portfolioResumeError = formatError(error)
+    } finally {
+      portfolioResumeLoading = false
+    }
+  }
+
+  // renderMarkdown converts provider output to sanitized HTML before it enters the document.
+  function renderMarkdown(value: string): string {
+    const rendered = marked.parse(value, { async: false, gfm: true })
+    return DOMPurify.sanitize(rendered)
   }
 
   function formatMoney(value: MoneyView | undefined): string {
@@ -624,6 +665,40 @@
       </section>
     {/if}
 
+    <section class="ai-panel" aria-label="AI portfolio resume">
+      <div class="ai-heading">
+        <div>
+          <h2>Portfolio resume</h2>
+          <span>Generated from current normalized positions and portfolio analytics.</span>
+        </div>
+        <button
+          class="button"
+          disabled={portfolio.Empty || portfolioResumeLoading}
+          on:click={getPortfolioResume}
+        >
+          {portfolioResumeLoading ? 'Generating...' : 'Get portfolio resume'}
+        </button>
+      </div>
+
+      {#if portfolioResumeLoading}
+        <div class="ai-status" role="status" aria-live="polite">Waiting for the configured AI provider...</div>
+      {:else if portfolioResumeError}
+        <div class="ai-error" role="alert" aria-live="assertive">
+          <strong>Portfolio resume unavailable</strong>
+          <span>{portfolioResumeError}</span>
+        </div>
+      {:else if portfolioResume}
+        <div class="ai-response" aria-live="polite">
+          <div class="ai-response-content">
+            {@html renderMarkdown(portfolioResume.Text)}
+          </div>
+          <small>
+            {portfolioResume.Provider} · {portfolioResume.Model} · {portfolioResume.PromptID} v{portfolioResume.PromptVersion}
+          </small>
+        </div>
+      {/if}
+    </section>
+
     <section class="table-section" aria-label="Positions">
       <div class="section-heading">
         <h2>Positions</h2>
@@ -864,6 +939,7 @@
   .summary-grid,
   .analytics-heading,
   .allocation-grid,
+  .ai-panel,
   .table-section,
   .loading-state {
     max-width: 1180px;
@@ -965,6 +1041,102 @@
     border: 1px solid #d8e0e8;
     border-radius: 6px;
     background: white;
+  }
+
+  .ai-panel {
+    padding: 18px;
+    border: 1px solid #d8e0e8;
+    border-radius: 6px;
+    background: white;
+  }
+
+  .ai-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .ai-heading div {
+    display: grid;
+    gap: 4px;
+  }
+
+  .ai-heading h2 {
+    margin: 0;
+  }
+
+  .ai-heading span,
+  .ai-response small,
+  .ai-status,
+  .ai-error span {
+    color: #5d6a7a;
+  }
+
+  .ai-status,
+  .ai-response,
+  .ai-error {
+    margin-top: 16px;
+    padding: 14px 16px;
+    border-left: 4px solid #1f6f8b;
+    background: #f5f9fb;
+    line-height: 1.55;
+  }
+
+  .ai-response {
+    display: grid;
+    gap: 10px;
+  }
+
+  .ai-response-content :global(h2) {
+    margin: 18px 0 6px;
+    color: #243444;
+    font-size: 18px;
+    line-height: 1.35;
+  }
+
+  .ai-response-content :global(h2:first-child),
+  .ai-response-content :global(p:first-child) {
+    margin-top: 0;
+  }
+
+  .ai-response-content :global(h3) {
+    margin: 14px 0 6px;
+    color: #32485c;
+    font-size: 16px;
+  }
+
+  .ai-response-content :global(p) {
+    margin: 8px 0;
+  }
+
+  .ai-response-content :global(ul),
+  .ai-response-content :global(ol) {
+    margin: 8px 0;
+    padding-left: 24px;
+  }
+
+  .ai-response-content :global(li + li) {
+    margin-top: 5px;
+  }
+
+  .ai-response-content :global(a) {
+    color: #14637d;
+    overflow-wrap: anywhere;
+  }
+
+  .ai-response-content :global(code) {
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: #e8f0f4;
+    font-family: Consolas, monospace;
+  }
+
+  .ai-error {
+    display: grid;
+    gap: 4px;
+    border-color: #c2414b;
+    background: #fff7f7;
   }
 
   .allocation-card h3 {
@@ -1096,6 +1268,11 @@
     }
 
     .analytics-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .ai-heading {
       align-items: stretch;
       flex-direction: column;
     }

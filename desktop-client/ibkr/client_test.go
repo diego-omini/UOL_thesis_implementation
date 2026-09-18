@@ -204,6 +204,55 @@ func TestCheckSessionInitializesBrokerageSession(t *testing.T) {
 	}
 }
 
+func TestCheckSessionUsesCompeteOnlyWhenGatewayRequiresIt(t *testing.T) {
+	initCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/sso/validate":
+			_, _ = w.Write([]byte(`{"RESULT":true,"LOGIN_TYPE":1}`))
+		case "/iserver/auth/status":
+			_, _ = w.Write([]byte(`{
+				"authenticated":false,
+				"connected":true,
+				"established":false,
+				"competing":false,
+				"fail":"Force compete capability must be used together with compete flag"
+			}`))
+		case "/iserver/auth/ssodh/init":
+			initCalls++
+			var request brokerageSessionInitRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if !request.Publish || !request.Compete {
+				http.Error(w, "gateway-required compete flag was not supplied", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte(`{
+				"authenticated":true,
+				"connected":true,
+				"established":true,
+				"competing":false
+			}`))
+		case "/iserver/accounts":
+			_, _ = w.Write([]byte(`{"isPaper":true}`))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	status := NewClient(server.URL, false).CheckSession(context.Background())
+	if !status.Ready() {
+		t.Fatalf("session was not ready after forced-competition initialization: %#v", status)
+	}
+	if initCalls != 1 {
+		t.Fatalf("brokerage initialization calls = %d, want 1", initCalls)
+	}
+}
+
 func TestLogoutPostsToGateway(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/logout" || r.Method != http.MethodPost {

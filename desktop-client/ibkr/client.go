@@ -36,10 +36,11 @@ type Client struct {
 
 // Information about authentication.
 type authStatusResponse struct {
-	Authenticated bool  `json:"authenticated"`
-	Connected     bool  `json:"connected"`
-	Competing     bool  `json:"competing"`
-	Established   *bool `json:"established"`
+	Authenticated bool   `json:"authenticated"`
+	Connected     bool   `json:"connected"`
+	Competing     bool   `json:"competing"`
+	Established   *bool  `json:"established"`
+	Fail          string `json:"fail"`
 }
 
 type ssoValidationResponse struct {
@@ -217,7 +218,10 @@ func (c *Client) CheckSession(ctx context.Context) broker.SessionStatus {
 	}
 
 	if !brokerageSessionReady(authentication) && !authentication.Competing {
-		initialized, err := c.initializeBrokerageSession(ctx)
+		initialized, err := c.initializeBrokerageSession(
+			ctx,
+			requiresForcedCompetition(authentication.Fail),
+		)
 		if err != nil {
 			return sessionRequestFailure(err, "IBKR brokerage session initialization failed")
 		}
@@ -295,12 +299,12 @@ func (c *Client) CheckSession(ctx context.Context) broker.SessionStatus {
 	}
 }
 
-// initializeBrokerageSession starts a non-competing brokerage session and waits for account services to become ready.
-func (c *Client) initializeBrokerageSession(ctx context.Context) (authStatusResponse, error) {
+// initializeBrokerageSession starts the brokerage session and waits for account services to become ready.
+func (c *Client) initializeBrokerageSession(ctx context.Context, compete bool) (authStatusResponse, error) {
 	var status authStatusResponse
 	err := c.postJSONBody(ctx, "/iserver/auth/ssodh/init", brokerageSessionInitRequest{
 		Publish: true,
-		Compete: false,
+		Compete: compete,
 	}, &status)
 	if err != nil {
 		return authStatusResponse{}, err
@@ -330,6 +334,14 @@ func (c *Client) initializeBrokerageSession(ctx context.Context) (authStatusResp
 			}
 		}
 	}
+}
+
+// requiresForcedCompetition recognizes the gateway response that explicitly requires the compete flag.
+func requiresForcedCompetition(failure string) bool {
+	return strings.Contains(
+		strings.ToLower(failure),
+		"force compete capability must be used together with compete flag",
+	)
 }
 
 func brokerageSessionReady(status authStatusResponse) bool {
