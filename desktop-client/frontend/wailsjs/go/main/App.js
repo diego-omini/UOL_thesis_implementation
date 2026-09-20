@@ -14,6 +14,10 @@ export function GetPortfolio() {
   return window['go']['main']['App']['GetPortfolio']();
 }
 
+export function GetPortfolioNews() {
+  return window['go']['main']['App']['GetPortfolioNews']();
+}
+
 export function GetPortfolioResume() {
   return window['go']['main']['App']['GetPortfolioResume']();
 }

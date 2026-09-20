@@ -74,6 +74,7 @@ var researchTopics = map[string]string{
 	"company_risk":        "official filings business risks financial condition",
 	"financial_condition": "official annual report revenue profitability cash debt",
 	"fund_holdings":       "official issuer fund holdings",
+	"latest_news":         "latest news earnings report financial results guidance material events",
 	"recent_events":       "recent material company events",
 	"regulatory_filings":  "official regulatory filings",
 }

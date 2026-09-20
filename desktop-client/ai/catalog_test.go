@@ -41,6 +41,20 @@ func TestEmbeddedCatalogResolvesActivePortfolioPrompt(t *testing.T) {
 	}
 }
 
+func TestEmbeddedCatalogResolvesPortfolioNewsPrompt(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	definition, err := catalog.resolve(PortfolioNewsPromptAlias)
+	if err != nil {
+		t.Fatalf("resolve returned an error: %v", err)
+	}
+	if definition.ID != PortfolioNewsPromptAlias || definition.Version != 1 || definition.Response.MaxCharacters != 12000 {
+		t.Fatalf("unexpected prompt definition: %+v", definition)
+	}
+}
+
 func TestExecutorRejectsMissingAndUnexpectedParameters(t *testing.T) {
 	executor := testExecutor(&recordingProvider{}, 100)
 

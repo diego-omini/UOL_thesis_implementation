@@ -235,6 +235,26 @@ func (a *App) GetPortfolioResume() (AIResponseView, error) {
 	}, nil
 }
 
+// GetPortfolioNews researches the latest material news for every open position.
+func (a *App) GetPortfolioNews() (AIResponseView, error) {
+	portfolioSnapshot, err := a.fetchPortfolio()
+	if err != nil {
+		return AIResponseView{}, err
+	}
+
+	response, err := a.aiCounselor.PortfolioNews(a.context(), portfolioSnapshot, time.Now())
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("portfolio news failed: %w", err)
+	}
+	return AIResponseView{
+		Text:          response.Text,
+		Provider:      a.aiProviderName,
+		Model:         response.Model,
+		PromptID:      response.PromptID,
+		PromptVersion: response.PromptVersion,
+	}, nil
+}
+
 func (a *App) fetchPortfolio() (portfolio.Portfolio, error) {
 	ctx := a.context()
 	status := a.sessionBroker.CheckSession(ctx)

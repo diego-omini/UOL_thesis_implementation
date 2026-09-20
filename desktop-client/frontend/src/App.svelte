@@ -6,6 +6,7 @@
   import {
     ChooseGatewayDirectory,
     GetPortfolio,
+    GetPortfolioNews,
     GetPortfolioResume,
     GetSessionStatus,
     InitializeSession,
@@ -139,6 +140,10 @@
   let portfolioResume: AIResponseView | null = null
   let portfolioResumeError = ''
   let portfolioResumeLoading = false
+  let portfolioNews: AIResponseView | null = null
+  let portfolioNewsError = ''
+  let portfolioNewsLoading = false
+  let positionsPromptsOpen = false
   let errorMessage = ''
   let authenticationPoll: ReturnType<typeof setInterval> | null = null
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null
@@ -227,6 +232,8 @@
     portfolio = null
     portfolioResume = null
     portfolioResumeError = ''
+    portfolioNews = null
+    portfolioNewsError = ''
     stopKeepAlive()
     if (applicationFocused && next.State !== 'gateway_configuration_required' && next.State !== 'live_account') {
       startAuthenticationPolling()
@@ -335,6 +342,8 @@
       portfolio = null
       portfolioResume = null
       portfolioResumeError = ''
+      portfolioNews = null
+      portfolioNewsError = ''
       applySession(await Logout())
     } catch (error) {
       errorMessage = formatError(error)
@@ -350,6 +359,8 @@
     errorMessage = ''
     portfolioResume = null
     portfolioResumeError = ''
+    portfolioNews = null
+    portfolioNewsError = ''
 
     try {
       portfolio = await GetPortfolio()
@@ -366,9 +377,12 @@
 
   // getPortfolioResume requests a fresh backend-owned snapshot and shows provider errors separately.
   async function getPortfolioResume(): Promise<void> {
+    positionsPromptsOpen = false
     portfolioResumeLoading = true
     portfolioResume = null
     portfolioResumeError = ''
+    portfolioNews = null
+    portfolioNewsError = ''
 
     try {
       portfolioResume = await GetPortfolioResume()
@@ -376,6 +390,24 @@
       portfolioResumeError = formatError(error)
     } finally {
       portfolioResumeLoading = false
+    }
+  }
+
+  // getPortfolioNews requests current public research for every normalized position.
+  async function getPortfolioNews(): Promise<void> {
+    positionsPromptsOpen = false
+    portfolioNewsLoading = true
+    portfolioNews = null
+    portfolioNewsError = ''
+    portfolioResume = null
+    portfolioResumeError = ''
+
+    try {
+      portfolioNews = await GetPortfolioNews()
+    } catch (error) {
+      portfolioNewsError = formatError(error)
+    } finally {
+      portfolioNewsLoading = false
     }
   }
 
@@ -665,27 +697,54 @@
       </section>
     {/if}
 
-    <section class="ai-panel" aria-label="AI portfolio resume">
-      <div class="ai-heading">
-        <div>
-          <h2>Portfolio resume</h2>
-          <span>Generated from current normalized positions and portfolio analytics.</span>
+    <section class="table-section" aria-label="Positions">
+      <div class="section-heading">
+        <div class="section-title">
+          <h2>Positions</h2>
+          <span>{portfolio.Positions.length} open</span>
         </div>
-        <button
-          class="button"
-          disabled={portfolio.Empty || portfolioResumeLoading}
-          on:click={getPortfolioResume}
-        >
-          {portfolioResumeLoading ? 'Generating...' : 'Get portfolio resume'}
-        </button>
+
+        <details class="prompt-dropdown" bind:open={positionsPromptsOpen}>
+          <summary>Positions prompts</summary>
+          <div class="prompt-menu">
+            <button
+              disabled={portfolio.Empty || portfolioResumeLoading || portfolioNewsLoading}
+              on:click={getPortfolioResume}
+            >
+              {portfolioResumeLoading ? 'Generating portfolio resume...' : 'Get portfolio resume'}
+            </button>
+            <button
+              disabled={portfolio.Empty || portfolioResumeLoading || portfolioNewsLoading}
+              on:click={getPortfolioNews}
+            >
+              {portfolioNewsLoading ? 'Researching portfolio news...' : 'Get portfolio news'}
+            </button>
+          </div>
+        </details>
       </div>
 
-      {#if portfolioResumeLoading}
-        <div class="ai-status" role="status" aria-live="polite">Waiting for the configured AI provider...</div>
+      {#if portfolioResumeLoading || portfolioNewsLoading}
+        <div class="ai-status" role="status" aria-live="polite">
+          {portfolioNewsLoading ? 'Researching the latest news for every position...' : 'Waiting for the configured AI provider...'}
+        </div>
+      {:else if portfolioNewsError}
+        <div class="ai-error" role="alert" aria-live="assertive">
+          <strong>Portfolio news unavailable</strong>
+          <span>{portfolioNewsError}</span>
+        </div>
       {:else if portfolioResumeError}
         <div class="ai-error" role="alert" aria-live="assertive">
           <strong>Portfolio resume unavailable</strong>
           <span>{portfolioResumeError}</span>
+        </div>
+      {:else if portfolioNews}
+        <div class="ai-response" aria-live="polite">
+          <div class="ai-response-content">
+            {@html renderMarkdown(portfolioNews.Text)}
+          </div>
+          <small>
+            {portfolioNews.Provider} · {portfolioNews.Model} · {portfolioNews.PromptID} v{portfolioNews.PromptVersion}
+          </small>
         </div>
       {:else if portfolioResume}
         <div class="ai-response" aria-live="polite">
@@ -697,13 +756,6 @@
           </small>
         </div>
       {/if}
-    </section>
-
-    <section class="table-section" aria-label="Positions">
-      <div class="section-heading">
-        <h2>Positions</h2>
-        <span>{portfolio.Positions.length} open</span>
-      </div>
 
       {#if portfolio.Empty}
         <div class="empty-state">
@@ -939,7 +991,6 @@
   .summary-grid,
   .analytics-heading,
   .allocation-grid,
-  .ai-panel,
   .table-section,
   .loading-state {
     max-width: 1180px;
@@ -1043,30 +1094,6 @@
     background: white;
   }
 
-  .ai-panel {
-    padding: 18px;
-    border: 1px solid #d8e0e8;
-    border-radius: 6px;
-    background: white;
-  }
-
-  .ai-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .ai-heading div {
-    display: grid;
-    gap: 4px;
-  }
-
-  .ai-heading h2 {
-    margin: 0;
-  }
-
-  .ai-heading span,
   .ai-response small,
   .ai-status,
   .ai-error span {
@@ -1167,7 +1194,6 @@
     border: 1px solid #d8e0e8;
     border-radius: 6px;
     background: white;
-    overflow: hidden;
   }
 
   .section-heading {
@@ -1180,12 +1206,97 @@
   }
 
   .section-heading h2 {
+    margin: 0;
     font-size: 18px;
   }
 
-  .section-heading span {
+  .section-title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .section-title span {
     color: #5d6a7a;
     font-size: 14px;
+  }
+
+  .prompt-dropdown {
+    position: relative;
+  }
+
+  .prompt-dropdown summary {
+    min-height: 38px;
+    padding: 0 34px 0 14px;
+    border: 1px solid #b8c4cf;
+    border-radius: 4px;
+    background: white;
+    color: #293646;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 36px;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .prompt-dropdown summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .prompt-dropdown summary::after {
+    position: absolute;
+    top: 16px;
+    right: 14px;
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    content: '';
+    transform: rotate(45deg);
+  }
+
+  .prompt-dropdown[open] summary::after {
+    top: 20px;
+    transform: rotate(225deg);
+  }
+
+  .prompt-menu {
+    position: absolute;
+    z-index: 2;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 230px;
+    padding: 6px;
+    border: 1px solid #d8e0e8;
+    border-radius: 4px;
+    background: white;
+    box-shadow: 0 8px 22px rgb(36 52 68 / 16%);
+  }
+
+  .prompt-menu button {
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: #293646;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .prompt-menu button:hover:not(:disabled),
+  .prompt-menu button:focus-visible {
+    background: #edf5f8;
+    color: #14566e;
+  }
+
+  .prompt-menu button:disabled {
+    cursor: wait;
+    opacity: 0.55;
   }
 
   .table-wrap {
@@ -1272,9 +1383,21 @@
       flex-direction: column;
     }
 
-    .ai-heading {
+    .section-heading {
       align-items: stretch;
       flex-direction: column;
+    }
+
+    .prompt-dropdown summary {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .prompt-menu {
+      right: auto;
+      left: 0;
+      width: 100%;
+      box-sizing: border-box;
     }
   }
 </style>

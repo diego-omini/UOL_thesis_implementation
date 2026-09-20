@@ -8,6 +8,8 @@ export function ChooseGatewayDirectory():Promise<main.SessionStatusView>;
 
 export function GetPortfolio():Promise<main.PortfolioView>;
 
+export function GetPortfolioNews():Promise<main.AIResponseView>;
+
 export function GetPortfolioResume():Promise<main.AIResponseView>;
 
 export function GetSessionStatus():Promise<main.SessionStatusView>;

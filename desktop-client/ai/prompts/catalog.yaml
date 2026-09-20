@@ -1,4 +1,7 @@
 aliases:
+  portfolio_news:
+    id: portfolio_news
+    version: 1
   portfolio_resume:
     id: portfolio_resume
     version: 2
