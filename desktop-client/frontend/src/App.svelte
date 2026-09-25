@@ -9,10 +9,13 @@
     GetPortfolioNews,
     GetPortfolioResume,
     GetSessionStatus,
+    GetStockHistory,
+    GetStockSnapshot,
     InitializeSession,
     KeepSessionAlive,
     Logout,
     OpenIBKRLogin,
+    SearchStocks,
     StartGateway,
   } from '../wailsjs/go/main/App.js'
 
@@ -66,6 +69,51 @@
     UnrealizedPnL: MoneyView
     BaseUnrealizedPnL: MoneyView
     PortfolioWeight: RatioView
+  }
+
+  type InstrumentSearchResultView = {
+    ContractID: number
+    Symbol: string
+    Name: string
+    Exchange: string
+    AssetClass: string
+  }
+
+  type OptionalNumberView = {
+    Value: number
+    Available: boolean
+    UnavailableReason: string
+  }
+
+  type StockSnapshotView = {
+    Instrument: InstrumentView
+    Currency: string
+    OpenPrice: OptionalNumberView
+    ClosePrice: OptionalNumberView
+    BidPrice: OptionalNumberView
+    AskPrice: OptionalNumberView
+    Volume: OptionalNumberView
+    High52Week: OptionalNumberView
+    Low52Week: OptionalNumberView
+    MarketDataStatus: string
+    AsOf: string
+  }
+
+  type StockHistoryPointView = {
+    Time: string
+    Open: number
+    High: number
+    Low: number
+    Close: number
+    Volume: number
+  }
+
+  type StockHistoryView = {
+    Range: string
+    Points: StockHistoryPointView[]
+    MarketDataStatus: string
+    DelaySeconds: number
+    UnavailableReason: string
   }
 
   type AllocationView = {
@@ -144,6 +192,21 @@
   let portfolioNewsError = ''
   let portfolioNewsLoading = false
   let positionsPromptsOpen = false
+  let selectedStock: InstrumentSearchResultView | null = null
+  let stockSnapshot: StockSnapshotView | null = null
+  let stockSnapshotLoading = false
+  let stockSnapshotError = ''
+  let stockHistory: StockHistoryView | null = null
+  let stockHistoryLoading = false
+  let stockHistoryError = ''
+  let selectedStockRange = '24h'
+  let stockPageSequence = 0
+  let stockSearchQuery = ''
+  let stockSearchResults: InstrumentSearchResultView[] = []
+  let stockSearchOpen = false
+  let stockSearchLoading = false
+  let stockSearchTimer: ReturnType<typeof setTimeout> | null = null
+  let stockSearchSequence = 0
   let errorMessage = ''
   let authenticationPoll: ReturnType<typeof setInterval> | null = null
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null
@@ -159,6 +222,7 @@
     window.removeEventListener('blur', handleWindowBlur)
     stopAuthenticationPolling()
     stopKeepAlive()
+    clearStockSearchTimer()
   })
 
   // handleWindowFocus immediately checks IBKR after the user returns from browser authentication.
@@ -234,6 +298,8 @@
     portfolioResumeError = ''
     portfolioNews = null
     portfolioNewsError = ''
+    resetStockPage()
+    clearStockSearch()
     stopKeepAlive()
     if (applicationFocused && next.State !== 'gateway_configuration_required' && next.State !== 'live_account') {
       startAuthenticationPolling()
@@ -344,6 +410,8 @@
       portfolioResumeError = ''
       portfolioNews = null
       portfolioNewsError = ''
+      resetStockPage()
+      clearStockSearch()
       applySession(await Logout())
     } catch (error) {
       errorMessage = formatError(error)
@@ -410,6 +478,307 @@
       portfolioNewsLoading = false
     }
   }
+
+  function clearStockSearchTimer(): void {
+    if (!stockSearchTimer) return
+    clearTimeout(stockSearchTimer)
+    stockSearchTimer = null
+  }
+
+  function clearStockSearch(): void {
+    clearStockSearchTimer()
+    stockSearchQuery = ''
+    stockSearchResults = []
+    stockSearchOpen = false
+    stockSearchLoading = false
+    stockSearchSequence++
+  }
+
+  function handleStockSearchInput(): void {
+    clearStockSearchTimer()
+    stockSearchResults = []
+    const query = stockSearchQuery.trim()
+    stockSearchOpen = query.length > 0
+    if (!query) {
+      stockSearchLoading = false
+      return
+    }
+    stockSearchTimer = setTimeout(() => void runStockSearch(query), 250)
+  }
+
+  // runStockSearch ignores stale responses when the user types another query before IBKR responds.
+  async function runStockSearch(query: string): Promise<InstrumentSearchResultView[]> {
+    const sequence = ++stockSearchSequence
+    stockSearchLoading = true
+    try {
+      const results = await SearchStocks(query)
+      if (sequence === stockSearchSequence && query === stockSearchQuery.trim()) {
+        stockSearchResults = results
+        stockSearchOpen = true
+      }
+      return results
+    } catch (error) {
+      if (sequence === stockSearchSequence) {
+        stockSearchResults = []
+      }
+      return []
+    } finally {
+      if (sequence === stockSearchSequence) {
+        stockSearchLoading = false
+      }
+    }
+  }
+
+  async function submitStockSearch(): Promise<void> {
+    clearStockSearchTimer()
+    const ticker = stockSearchQuery.trim().toUpperCase()
+    if (!ticker) return
+    const availableResults = stockSearchResults.length > 0
+      ? stockSearchResults
+      : await runStockSearch(ticker)
+    const exactMatch = availableResults.find(result => result.Symbol.toUpperCase() === ticker)
+    if (exactMatch) {
+      openStock(exactMatch)
+    }
+  }
+
+  function openPosition(position: PositionView): void {
+    openStock({
+      ContractID: position.Instrument.ContractID,
+      Symbol: position.Instrument.Symbol,
+      Name: position.Instrument.Name,
+      Exchange: position.Instrument.Exchange,
+      AssetClass: position.Instrument.AssetClass,
+    })
+  }
+
+  function openStock(stock: InstrumentSearchResultView): void {
+    stockPageSequence++
+    selectedStock = stock
+    stockSnapshot = null
+    stockSnapshotError = ''
+    stockHistory = null
+    stockHistoryError = ''
+    selectedStockRange = '24h'
+    clearStockSearch()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    const sequence = stockPageSequence
+    void loadStockSnapshot(stock.ContractID, sequence)
+    void loadStockHistory(stock.ContractID, selectedStockRange, sequence)
+  }
+
+  function showDashboard(): void {
+    resetStockPage()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function resetStockPage(): void {
+    stockPageSequence++
+    selectedStock = null
+    stockSnapshot = null
+    stockSnapshotLoading = false
+    stockSnapshotError = ''
+    stockHistory = null
+    stockHistoryLoading = false
+    stockHistoryError = ''
+    selectedStockRange = '24h'
+  }
+
+  async function loadStockSnapshot(contractID: number, sequence: number): Promise<void> {
+    stockSnapshotLoading = true
+    stockSnapshotError = ''
+    try {
+      const result = await GetStockSnapshot(contractID)
+      if (sequence === stockPageSequence) {
+        stockSnapshot = result
+      }
+    } catch (error) {
+      if (sequence === stockPageSequence) {
+        stockSnapshotError = formatError(error)
+      }
+    } finally {
+      if (sequence === stockPageSequence) {
+        stockSnapshotLoading = false
+      }
+    }
+  }
+
+  async function loadStockHistory(contractID: number, timeRange: string, sequence: number): Promise<void> {
+    stockHistoryLoading = true
+    stockHistoryError = ''
+    try {
+      const result = await GetStockHistory(contractID, timeRange)
+      if (sequence === stockPageSequence && timeRange === selectedStockRange) {
+        stockHistory = result
+      }
+    } catch (error) {
+      if (sequence === stockPageSequence && timeRange === selectedStockRange) {
+        stockHistory = null
+        stockHistoryError = formatError(error)
+      }
+    } finally {
+      if (sequence === stockPageSequence && timeRange === selectedStockRange) {
+        stockHistoryLoading = false
+      }
+    }
+  }
+
+  function selectStockRange(timeRange: string): void {
+    if (!selectedStock || timeRange === selectedStockRange) return
+    selectedStockRange = timeRange
+    stockHistory = null
+    void loadStockHistory(selectedStock.ContractID, timeRange, stockPageSequence)
+  }
+
+  function handlePositionKeydown(event: KeyboardEvent, position: PositionView): void {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      openPosition(position)
+    }
+  }
+
+  function formatStockPrice(value: OptionalNumberView | undefined, currency: string): string {
+    if (!value?.Available) return '-'
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency', currency: currency || 'USD', maximumFractionDigits: 4,
+    }).format(value.Value)
+  }
+
+  function formatStockNumber(value: OptionalNumberView | undefined, maximumFractionDigits = 2): string {
+    if (!value?.Available) return '-'
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value.Value)
+  }
+
+  function stockMetricTitle(value: OptionalNumberView | undefined): string {
+    return value?.Available ? '' : value?.UnavailableReason || 'Value unavailable'
+  }
+
+  function marketDataStatusLabel(status: string): string {
+    const labels: Record<string, string> = {
+      R: 'Real-time', D: 'Delayed', Z: 'Frozen', Y: 'Frozen delayed',
+      N: 'Not subscribed', i: 'Incomplete', v: 'Vendor-display exempt',
+    }
+    return labels[status.charAt(0)] || status
+  }
+
+  function averageCostForChart(position: PositionView | null, snapshot: StockSnapshotView | null): number | null {
+    if (!position || position.Quantity === 0 || !position.AverageCost.Available) return null
+    const chartCurrency = snapshot?.Currency || position.Instrument.Currency
+    const averageCurrency = position.AverageCost.Currency
+    if (chartCurrency && averageCurrency && chartCurrency.trim().toUpperCase() !== averageCurrency.trim().toUpperCase()) return null
+    return Number.isFinite(position.AverageCost.Amount) && position.AverageCost.Amount > 0
+      ? position.AverageCost.Amount
+      : null
+  }
+
+  function chartValues(history: StockHistoryView, averageCost: number | null): number[] {
+    const closes = history.Points.map(point => point.Close).filter(Number.isFinite)
+    if (averageCost !== null) closes.push(averageCost)
+    return closes
+  }
+
+  function wholePriceStep(rawStep: number): number {
+    const minimumStep = Math.max(1, rawStep)
+    const magnitude = 10 ** Math.floor(Math.log10(minimumStep))
+    for (const factor of [1, 2.5, 5, 10]) {
+      const candidate = factor * magnitude
+      if (Number.isInteger(candidate) && candidate >= minimumStep) return candidate
+    }
+    return 10 * magnitude
+  }
+
+  // chartPriceAxis expands the data to equally spaced whole-number price ticks.
+  function chartPriceAxis(history: StockHistoryView, averageCost: number | null): { min: number; max: number; step: number } {
+    const values = chartValues(history, averageCost)
+    if (values.length === 0) return { min: 0, max: 1, step: 1 }
+    const dataMin = Math.min(...values)
+    const dataMax = Math.max(...values)
+    const step = wholePriceStep(dataMin === dataMax ? Math.abs(dataMin) * 0.02 : (dataMax - dataMin) / 4)
+    let min = Math.floor(dataMin / step) * step
+    let max = Math.ceil(dataMax / step) * step
+    if (min === dataMin) min -= step
+    if (max === dataMax) max += step
+    if (dataMin >= 0) min = Math.max(0, min)
+    if (min === max) max = min + step
+    return { min, max, step }
+  }
+
+  // chartTimeTicks distributes labels across actual bars so the plotted line fills the available width.
+  function chartTimeTicks(history: StockHistoryView): Array<{ label: string; x: number }> {
+    const pointCount = history.Points.length
+    if (pointCount === 0) return []
+    const tickCount = Math.min(5, pointCount)
+    if (tickCount === 1) {
+      return [{ label: formatChartDate(history.Points[0].Time, selectedStockRange), x: 480 }]
+    }
+    const indexes = Array.from({ length: tickCount }, (_, index) =>
+      Math.round(index * (pointCount - 1) / (tickCount - 1))
+    )
+    return indexes.map(pointIndex => ({
+      label: formatChartDate(history.Points[pointIndex].Time, selectedStockRange),
+      x: pointIndex / (pointCount - 1) * 960,
+    }))
+  }
+
+  // chartPolyline maps the selected close-price series into a stable SVG coordinate system.
+  function chartPolyline(history: StockHistoryView, averageCost: number | null): string {
+    if (history.Points.length === 0) return ''
+    const { min, max } = chartPriceAxis(history, averageCost)
+    const width = 960
+    const height = 280
+    return history.Points.map((point, index) => {
+      const x = history.Points.length === 1 ? width / 2 : index / (history.Points.length - 1) * width
+      const y = height - ((point.Close - min) / (max - min)) * height
+      return `${x.toFixed(2)},${y.toFixed(2)}`
+    }).join(' ')
+  }
+
+  function chartYTicks(history: StockHistoryView, averageCost: number | null): Array<{ value: number; y: number }> {
+    const { min, max, step } = chartPriceAxis(history, averageCost)
+    const tickCount = Math.round((max - min) / step)
+    return Array.from({ length: tickCount + 1 }, (_, index) => {
+      const value = max - step * index
+      return { value, y: (max - value) / (max - min) * 280 }
+    })
+  }
+
+  function formatChartPrice(value: number, currency: string): string {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency', currency: currency || 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0,
+    }).format(value)
+  }
+
+  function averageCostY(history: StockHistoryView, averageCost: number | null): number {
+    if (averageCost === null) return 0
+    const { min, max } = chartPriceAxis(history, averageCost)
+    return 280 - (averageCost - min) / (max - min) * 280
+  }
+
+  function positionChartResult(history: StockHistoryView, averageCost: number | null): 'gain' | 'loss' | null {
+    if (!selectedPosition || averageCost === null || history.Points.length === 0) return null
+    const latestClose = history.Points[history.Points.length - 1].Close
+    const profitable = selectedPosition.Quantity < 0 ? latestClose <= averageCost : latestClose >= averageCost
+    return profitable ? 'gain' : 'loss'
+  }
+
+  function formatChartDate(value: string, timeRange: string): string {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '-'
+    if (timeRange === '24h') return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    if (timeRange === '1y') return date.toLocaleDateString([], { month: 'short', year: 'numeric' })
+    if (timeRange === 'all') return String(date.getFullYear())
+    return date.toLocaleDateString()
+  }
+
+  $: selectedPosition = selectedStock && portfolio
+    ? portfolio.Positions.find(position =>
+        position.Quantity !== 0 && (
+          position.Instrument.ContractID === selectedStock?.ContractID ||
+          position.Instrument.Symbol.toUpperCase() === selectedStock?.Symbol.toUpperCase()
+        )
+      ) ?? null
+    : null
+  $: chartAverageCost = averageCostForChart(selectedPosition, stockSnapshot)
 
   // renderMarkdown converts provider output to sanitized HTML before it enters the document.
   function renderMarkdown(value: string): string {
@@ -548,11 +917,45 @@
       <small class="auth-note">Authentication is handled by Interactive Brokers and is limited to the paper-trading environment.</small>
     </section>
   {:else}
-  <section class="panel">
-    <div>
+  <header class="app-header">
+    <button class="dashboard-link" type="button" on:click={showDashboard} aria-label="Open portfolio dashboard">
       <span class="eyebrow">IBKR paper trading</span>
       <h1>Portfolio dashboard</h1>
-    </div>
+    </button>
+
+    <form class="stock-search" role="search" on:submit|preventDefault={submitStockSearch}>
+      <label class="sr-only" for="stock-search-input">Search by ticker or company name</label>
+      <div class="stock-search-field">
+        <span class="search-icon" aria-hidden="true"></span>
+        <input
+          id="stock-search-input"
+          type="search"
+          placeholder="Search ticker or company"
+          autocomplete="off"
+          bind:value={stockSearchQuery}
+          on:input={handleStockSearchInput}
+          on:focus={() => stockSearchOpen = stockSearchQuery.trim().length > 0}
+          on:blur={() => window.setTimeout(() => stockSearchOpen = false, 120)}
+        />
+        {#if stockSearchLoading}<span class="search-loading" aria-label="Searching"></span>{/if}
+      </div>
+
+      {#if stockSearchOpen}
+        <div class="stock-search-results" role="listbox" aria-label="Stock search results">
+          {#each stockSearchResults as result}
+            <button type="button" role="option" aria-selected="false" on:mousedown|preventDefault on:click={() => openStock(result)}>
+              <strong>{result.Symbol}</strong>
+              <span>{result.Name || 'Unnamed stock'}</span>
+              <small>{result.Exchange || 'Exchange unavailable'}</small>
+            </button>
+          {:else}
+            <div class="stock-search-empty">
+              {stockSearchLoading ? 'Searching...' : 'No matching stocks'}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </form>
 
     <div class="actions">
       <button class="button" disabled={loading} on:click={refreshPortfolio}>
@@ -560,7 +963,7 @@
       </button>
       <button class="secondary-button" disabled={authAction} on:click={logout}>Log out</button>
     </div>
-  </section>
+  </header>
 
   {#if errorMessage}
     <section class="error" aria-live="assertive">
@@ -569,7 +972,167 @@
     </section>
   {/if}
 
-  {#if portfolio}
+  {#if selectedStock}
+    <section class="stock-page" aria-label={`${selectedStock.Symbol} stock details`}>
+      <button class="back-button" type="button" on:click={showDashboard}>← Back to portfolio</button>
+      <div class="stock-heading">
+        <div>
+          <span class="eyebrow">Stock</span>
+          <h2>{stockSnapshot?.Instrument.Symbol || selectedStock.Symbol}</h2>
+          <p>{stockSnapshot?.Instrument.Name || selectedStock.Name || 'Company name unavailable'}</p>
+        </div>
+        <div class="stock-badges">
+          <span>{stockSnapshot?.Instrument.AssetClass || selectedStock.AssetClass || 'STK'}</span>
+          {#if stockSnapshot?.Instrument.Exchange || selectedStock.Exchange}
+            <span>{stockSnapshot?.Instrument.Exchange || selectedStock.Exchange}</span>
+          {/if}
+          {#if stockSnapshot?.Currency}<span>{stockSnapshot.Currency}</span>{/if}
+        </div>
+      </div>
+
+      <section class="stock-chart-card" aria-label="Historical stock price">
+        <div class="stock-chart-heading">
+          <div>
+            <h2>Price history</h2>
+            {#if stockHistory?.Points.length}
+              <span>
+                {formatChartDate(stockHistory.Points[0].Time, selectedStockRange)} –
+                {formatChartDate(stockHistory.Points[stockHistory.Points.length - 1].Time, selectedStockRange)}
+              </span>
+            {:else}
+              <span>IBKR trade-price history</span>
+            {/if}
+          </div>
+          <div class="range-selector" aria-label="Price history range">
+            {#each [['24h', '24 hours'], ['1m', '1 month'], ['1y', '1 year'], ['all', 'All']] as range}
+              <button
+                type="button"
+                class:active={selectedStockRange === range[0]}
+                aria-pressed={selectedStockRange === range[0]}
+                on:click={() => selectStockRange(range[0])}
+              >{range[1]}</button>
+            {/each}
+          </div>
+        </div>
+
+        {#if stockHistoryLoading}
+          <div class="chart-message" role="status">Loading price history...</div>
+        {:else if stockHistoryError}
+          <div class="chart-message error-text" role="alert">{stockHistoryError}</div>
+        {:else if stockHistory && stockHistory.Points.length > 0}
+          <div class="chart-area">
+            <div class="chart-y-labels" aria-hidden="true">
+              {#each chartYTicks(stockHistory, chartAverageCost) as tick}
+                <span>{formatChartPrice(tick.value, stockSnapshot?.Currency || selectedPosition?.AverageCost.Currency || 'USD')}</span>
+              {/each}
+            </div>
+            <div class="chart-plot">
+              <svg viewBox="0 0 960 280" preserveAspectRatio="none" role="img" aria-label={`${selectedStock.Symbol} closing price chart`}>
+                {#each chartYTicks(stockHistory, chartAverageCost) as tick}
+                  <line class="chart-grid-line" x1="0" y1={tick.y} x2="960" y2={tick.y}></line>
+                {/each}
+                {#each chartTimeTicks(stockHistory) as tick}
+                  <line class="chart-grid-line" x1={tick.x} y1="0" x2={tick.x} y2="280"></line>
+                {/each}
+                <polyline points={chartPolyline(stockHistory, chartAverageCost)}></polyline>
+                {#if chartAverageCost !== null}
+                  <line
+                    class="average-cost-line"
+                    class:gain={positionChartResult(stockHistory, chartAverageCost) === 'gain'}
+                    class:loss={positionChartResult(stockHistory, chartAverageCost) === 'loss'}
+                    x1="0"
+                    y1={averageCostY(stockHistory, chartAverageCost)}
+                    x2="960"
+                    y2={averageCostY(stockHistory, chartAverageCost)}
+                  ></line>
+                {/if}
+              </svg>
+              <div class="chart-x-labels" aria-hidden="true">
+                {#each chartTimeTicks(stockHistory) as tick}
+                  <span style={`left: ${tick.x / 9.6}%`}>{tick.label}</span>
+                {/each}
+              </div>
+            </div>
+          </div>
+          <div class="chart-meta">
+            <span>{stockHistory.Points.length} bars</span>
+            {#if chartAverageCost !== null}
+              <span
+                class:gain-text={positionChartResult(stockHistory, chartAverageCost) === 'gain'}
+                class:loss-text={positionChartResult(stockHistory, chartAverageCost) === 'loss'}
+              >Average cost: {formatMoney(selectedPosition?.AverageCost)}</span>
+            {/if}
+            {#if selectedStockRange === 'all'}<span>Maximum available range: 15 years</span>{/if}
+            {#if stockHistory.DelaySeconds > 0}<span>Delayed {stockHistory.DelaySeconds / 60} minutes</span>{/if}
+          </div>
+        {:else}
+          <div class="chart-message">{stockHistory?.UnavailableReason || 'No historical prices are available.'}</div>
+        {/if}
+      </section>
+
+      {#if stockSnapshotLoading}
+        <section class="stock-data-status" role="status">Loading current market data...</section>
+      {:else if stockSnapshotError}
+        <section class="stock-data-status error-text" role="alert">{stockSnapshotError}</section>
+      {:else if stockSnapshot}
+        <section class="stock-metrics-grid" aria-label="Current stock data">
+          <article class="stock-metric" title={stockMetricTitle(stockSnapshot.OpenPrice)}>
+            <span>Last open</span><strong>{formatStockPrice(stockSnapshot.OpenPrice, stockSnapshot.Currency)}</strong>
+          </article>
+          <article class="stock-metric" title={stockMetricTitle(stockSnapshot.ClosePrice)}>
+            <span>Last close</span><strong>{formatStockPrice(stockSnapshot.ClosePrice, stockSnapshot.Currency)}</strong>
+          </article>
+          <article class="stock-metric" title={stockMetricTitle(stockSnapshot.BidPrice)}>
+            <span>Bid</span><strong>{formatStockPrice(stockSnapshot.BidPrice, stockSnapshot.Currency)}</strong>
+          </article>
+          <article class="stock-metric" title={stockMetricTitle(stockSnapshot.AskPrice)}>
+            <span>Ask</span><strong>{formatStockPrice(stockSnapshot.AskPrice, stockSnapshot.Currency)}</strong>
+          </article>
+          <article class="stock-metric" title={stockMetricTitle(stockSnapshot.Volume)}>
+            <span>Volume</span><strong>{formatStockNumber(stockSnapshot.Volume, 0)}</strong>
+          </article>
+          <article class="stock-metric" title={stockMetricTitle(stockSnapshot.High52Week)}>
+            <span>52-week high</span><strong>{formatStockPrice(stockSnapshot.High52Week, stockSnapshot.Currency)}</strong>
+          </article>
+          <article class="stock-metric" title={stockMetricTitle(stockSnapshot.Low52Week)}>
+            <span>52-week low</span><strong>{formatStockPrice(stockSnapshot.Low52Week, stockSnapshot.Currency)}</strong>
+          </article>
+        </section>
+        <div class="stock-data-footnote">
+          <span>Updated {formatDate(stockSnapshot.AsOf)}</span>
+          {#if stockSnapshot.MarketDataStatus}<span>IBKR availability: {marketDataStatusLabel(stockSnapshot.MarketDataStatus)}</span>{/if}
+          <span>Hover unavailable values for details.</span>
+        </div>
+      {/if}
+
+      {#if selectedPosition}
+        <section class="stock-position-card" aria-label="Current portfolio position">
+          <div class="section-heading">
+            <div class="section-title">
+              <h2>Current position</h2>
+              <span>{formatPercent(selectedPosition.PortfolioWeight)} of portfolio</span>
+            </div>
+          </div>
+          <div class="stock-position-grid">
+            <div><span>Quantity</span><strong>{formatNumber(selectedPosition.Quantity)}</strong></div>
+            <div><span>Average cost</span><strong>{formatMoney(selectedPosition.AverageCost)}</strong></div>
+            <div><span>Market price</span><strong>{formatMoney(selectedPosition.MarketPrice)}</strong></div>
+            <div><span>Market value</span><strong>{formatMoney(selectedPosition.MarketValue)}</strong></div>
+            <div>
+              <span>Unrealized P/L</span>
+              <strong class:loss={selectedPosition.UnrealizedPnL.Available && selectedPosition.UnrealizedPnL.Amount < 0} class="pnl">
+                {formatMoney(selectedPosition.UnrealizedPnL)}
+              </strong>
+            </div>
+          </div>
+        </section>
+      {:else}
+        <section class="stock-not-held">
+          This stock is not part of the current portfolio. Market data and trading controls will be added in their dedicated milestones.
+        </section>
+      {/if}
+    </section>
+  {:else if portfolio}
     <section class="summary-grid" aria-label="Account summary">
       <article class="metric">
         <span>Account</span>
@@ -780,7 +1343,14 @@
 
             <tbody>
               {#each portfolio.Positions as position}
-                <tr>
+                <tr
+                  class="position-row"
+                  role="link"
+                  tabindex="0"
+                  aria-label={`Open ${position.Instrument.Symbol || position.Instrument.Name} stock page`}
+                  on:click={() => openPosition(position)}
+                  on:keydown={(event) => handlePositionKeydown(event, position)}
+                >
                   <td>
                     <strong>{position.Instrument.Symbol || '-'}</strong>
                     <span>{position.Instrument.Name || position.Instrument.Exchange || ''}</span>
@@ -945,13 +1515,166 @@
     line-height: 1.45;
   }
 
-  .panel {
-    display: flex;
+  .app-header {
+    position: sticky;
+    z-index: 10;
+    top: 0;
+    display: grid;
+    grid-template-columns: auto minmax(220px, 1fr) auto;
     align-items: center;
-    justify-content: space-between;
     gap: 24px;
     max-width: 1180px;
-    margin: 0 auto 20px;
+    margin: -16px auto 20px;
+    padding: 16px;
+    border: 1px solid #d8e0e8;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 4px 16px rgba(24, 33, 47, 0.09);
+    backdrop-filter: blur(8px);
+  }
+
+  .dashboard-link {
+    display: grid;
+    gap: 2px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .dashboard-link h1 {
+    font-size: 22px;
+  }
+
+  .stock-search {
+    position: relative;
+    width: min(100%, 460px);
+    justify-self: center;
+  }
+
+  .stock-search-field {
+    position: relative;
+  }
+
+  .stock-search input {
+    width: 100%;
+    min-height: 42px;
+    box-sizing: border-box;
+    padding: 0 42px;
+    border: 1px solid #b8c4cf;
+    border-radius: 6px;
+    background: #f9fbfc;
+    color: #18212f;
+    font: inherit;
+  }
+
+  .stock-search input:focus {
+    border-color: #1f6f8b;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(31, 111, 139, 0.14);
+    outline: none;
+  }
+
+  .search-icon {
+    position: absolute;
+    z-index: 1;
+    top: 12px;
+    left: 15px;
+    width: 13px;
+    height: 13px;
+    border: 2px solid #637282;
+    border-radius: 50%;
+  }
+
+  .search-icon::after {
+    position: absolute;
+    right: -5px;
+    bottom: -4px;
+    width: 7px;
+    height: 2px;
+    background: #637282;
+    content: '';
+    transform: rotate(45deg);
+  }
+
+  .search-loading {
+    position: absolute;
+    top: 13px;
+    right: 15px;
+    width: 14px;
+    height: 14px;
+    border: 2px solid #cbd9df;
+    border-top-color: #1f6f8b;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .stock-search-results {
+    position: absolute;
+    z-index: 12;
+    top: calc(100% + 7px);
+    right: 0;
+    left: 0;
+    overflow: hidden;
+    border: 1px solid #d8e0e8;
+    border-radius: 6px;
+    background: white;
+    box-shadow: 0 12px 28px rgba(24, 33, 47, 0.18);
+  }
+
+  .stock-search-results button {
+    display: grid;
+    grid-template-columns: 62px minmax(0, 1fr) auto;
+    gap: 10px;
+    width: 100%;
+    padding: 11px 13px;
+    border: 0;
+    border-bottom: 1px solid #edf1f5;
+    background: white;
+    color: #293646;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .stock-search-results button:last-child {
+    border-bottom: 0;
+  }
+
+  .stock-search-results button:hover,
+  .stock-search-results button:focus-visible {
+    background: #edf5f8;
+    outline: none;
+  }
+
+  .stock-search-results button span {
+    overflow: hidden;
+    color: #516171;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stock-search-results button small {
+    color: #6f7b89;
+  }
+
+  .stock-search-empty {
+    padding: 13px;
+    color: #6f7b89;
+    font-size: 14px;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
   }
 
   h1,
@@ -995,6 +1718,301 @@
   .loading-state {
     max-width: 1180px;
     margin: 0 auto 16px;
+  }
+
+  .stock-page {
+    display: grid;
+    gap: 16px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  .back-button {
+    width: max-content;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #1f6f8b;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .stock-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 26px;
+    border: 1px solid #d8e0e8;
+    border-radius: 8px;
+    background: white;
+  }
+
+  .stock-heading h2 {
+    margin-top: 4px;
+    font-size: 36px;
+  }
+
+  .stock-heading p {
+    margin: 5px 0 0;
+    color: #5d6a7a;
+  }
+
+  .stock-badges {
+    display: flex;
+    gap: 8px;
+  }
+
+  .stock-badges span {
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: #edf5f8;
+    color: #14566e;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .stock-chart-card {
+    overflow: hidden;
+    border: 1px solid #d8e0e8;
+    border-radius: 8px;
+    background: white;
+  }
+
+  .stock-chart-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 18px 20px;
+    border-bottom: 1px solid #edf1f5;
+  }
+
+  .stock-chart-heading > div:first-child {
+    display: grid;
+    gap: 4px;
+  }
+
+  .stock-chart-heading h2 {
+    font-size: 18px;
+  }
+
+  .stock-chart-heading span,
+  .chart-meta,
+  .stock-data-footnote {
+    color: #6f7b89;
+    font-size: 12px;
+  }
+
+  .range-selector {
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 6px;
+    background: #edf1f5;
+  }
+
+  .range-selector button {
+    min-height: 32px;
+    padding: 0 11px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #4c5b6b;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .range-selector button:hover,
+  .range-selector button:focus-visible {
+    color: #14566e;
+    outline: 2px solid rgba(31, 111, 139, 0.25);
+  }
+
+  .range-selector button.active {
+    background: white;
+    color: #14566e;
+    box-shadow: 0 1px 3px rgba(24, 33, 47, 0.12);
+  }
+
+  .chart-area {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
+    height: 326px;
+    padding: 22px 20px 8px;
+  }
+
+  .chart-y-labels {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding-bottom: 30px;
+    color: #6f7b89;
+    font-size: 11px;
+  }
+
+  .chart-plot {
+    display: grid;
+    grid-template-rows: 280px 30px;
+    min-width: 0;
+  }
+
+  .chart-plot svg {
+    width: 100%;
+    height: 280px;
+    overflow: visible;
+  }
+
+  .chart-grid-line {
+    stroke: #e7edf2;
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .chart-plot .average-cost-line {
+    stroke: #b67b12;
+    stroke-dasharray: 7 5;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .chart-plot .average-cost-line.gain {
+    stroke: #237a4b;
+  }
+
+  .chart-plot .average-cost-line.loss {
+    stroke: #b33b47;
+  }
+
+  .chart-plot polyline {
+    fill: none;
+    stroke: #1f6f8b;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2.5;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .chart-x-labels {
+    position: relative;
+    color: #6f7b89;
+    font-size: 11px;
+  }
+
+  .chart-x-labels span {
+    position: absolute;
+    bottom: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+
+  .chart-x-labels span:first-child {
+    transform: none;
+  }
+
+  .chart-x-labels span:last-child {
+    transform: translateX(-100%);
+  }
+
+  .gain-text {
+    color: #237a4b;
+    font-weight: 700;
+  }
+
+  .loss-text {
+    color: #b33b47;
+    font-weight: 700;
+  }
+
+  .chart-message,
+  .stock-data-status {
+    display: grid;
+    min-height: 180px;
+    place-items: center;
+    padding: 24px;
+    color: #6f7b89;
+    text-align: center;
+  }
+
+  .chart-meta,
+  .stock-data-footnote {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding: 0 20px 14px;
+  }
+
+  .stock-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .stock-metric {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    padding: 18px;
+    border: 1px solid #d8e0e8;
+    border-radius: 6px;
+    background: white;
+  }
+
+  .stock-metric span {
+    color: #5d6a7a;
+    font-size: 13px;
+  }
+
+  .stock-metric strong {
+    overflow: hidden;
+    font-size: 21px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stock-data-footnote {
+    padding-top: 0;
+  }
+
+  .error-text {
+    color: #a62f3a;
+  }
+
+  .stock-position-card {
+    border: 1px solid #d8e0e8;
+    border-radius: 8px;
+    background: white;
+  }
+
+  .stock-position-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 1px;
+    background: #e5ebf1;
+  }
+
+  .stock-position-grid div {
+    display: grid;
+    gap: 7px;
+    padding: 18px;
+    background: white;
+  }
+
+  .stock-position-grid span {
+    color: #5d6a7a;
+    font-size: 13px;
+  }
+
+  .stock-not-held {
+    padding: 18px;
+    border-left: 4px solid #1f6f8b;
+    background: white;
+    color: #5d6a7a;
+    line-height: 1.5;
   }
 
   .error,
@@ -1335,6 +2353,17 @@
     border-bottom: none;
   }
 
+  .position-row {
+    cursor: pointer;
+    transition: background-color 120ms ease;
+  }
+
+  .position-row:hover,
+  .position-row:focus-visible {
+    background: #f1f7f9;
+    outline: none;
+  }
+
   .numeric {
     text-align: right;
     white-space: nowrap;
@@ -1364,10 +2393,54 @@
       padding: 28px 22px;
     }
 
-    .panel,
+    .app-header {
+      position: sticky;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: -10px;
+    }
+
+    .stock-search {
+      width: 100%;
+      justify-self: stretch;
+    }
+
     .actions {
       align-items: stretch;
       flex-direction: column;
+    }
+
+    .stock-heading {
+      flex-direction: column;
+    }
+
+    .stock-metrics-grid,
+    .stock-position-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .stock-chart-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .range-selector {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .range-selector button {
+      padding: 0 6px;
+    }
+
+    .chart-area {
+      height: 250px;
+      padding-right: 12px;
+      padding-left: 12px;
+    }
+
+    .chart-area svg {
+      height: 220px;
     }
 
     .summary-grid {

@@ -22,13 +22,15 @@ import (
 
 // App is the Wails application object whose exported methods can be called from the frontend.
 type App struct {
-	ctx             context.Context
-	cfg             config.AppConfig
-	portfolioBroker broker.PortfolioProvider
-	sessionBroker   broker.SessionProvider
-	gateway         *gateway.Controller
-	aiCounselor     *ai.Counselor
-	aiProviderName  string
+	ctx              context.Context
+	cfg              config.AppConfig
+	portfolioBroker  broker.PortfolioProvider
+	instrumentSearch broker.InstrumentSearchProvider
+	stockData        broker.StockDataProvider
+	sessionBroker    broker.SessionProvider
+	gateway          *gateway.Controller
+	aiCounselor      *ai.Counselor
+	aiProviderName   string
 }
 
 // NewApp creates the Wails application object.
@@ -63,12 +65,14 @@ func NewApp() (*App, error) {
 	)
 
 	return &App{
-		cfg:             cfg,
-		portfolioBroker: client,
-		sessionBroker:   client,
-		gateway:         gateway.NewController(cfg.IBKR.GatewayDirectory),
-		aiCounselor:     ai.NewCounselor(promptExecutor, researchTools),
-		aiProviderName:  cfg.AI.Provider,
+		cfg:              cfg,
+		portfolioBroker:  client,
+		instrumentSearch: client,
+		stockData:        client,
+		sessionBroker:    client,
+		gateway:          gateway.NewController(cfg.IBKR.GatewayDirectory),
+		aiCounselor:      ai.NewCounselor(promptExecutor, researchTools),
+		aiProviderName:   cfg.AI.Provider,
 	}, nil
 }
 
@@ -212,6 +216,59 @@ func (a *App) GetPortfolio() (PortfolioView, error) {
 
 	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
 	return toPortfolioView(portfolioSnapshot, portfolioAnalytics), nil
+}
+
+// SearchStocks returns matching stock contracts for the dashboard ticker search.
+func (a *App) SearchStocks(query string) ([]InstrumentSearchResultView, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []InstrumentSearchResultView{}, nil
+	}
+	if len(query) > 64 {
+		return nil, fmt.Errorf("stock search query is too long")
+	}
+
+	status := a.sessionBroker.CheckSession(a.context())
+	if !status.Ready() {
+		return nil, fmt.Errorf("stock search requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	results, err := a.instrumentSearch.SearchStocks(a.context(), query)
+	if err != nil {
+		return nil, err
+	}
+	return toInstrumentSearchResultViews(results), nil
+}
+
+// GetStockSnapshot returns current quote and reference values for one stock contract.
+func (a *App) GetStockSnapshot(contractID int64) (StockSnapshotView, error) {
+	if contractID <= 0 {
+		return StockSnapshotView{}, fmt.Errorf("a valid stock contract ID is required")
+	}
+	status := a.sessionBroker.CheckSession(a.context())
+	if !status.Ready() {
+		return StockSnapshotView{}, fmt.Errorf("stock data requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	snapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	if err != nil {
+		return StockSnapshotView{}, err
+	}
+	return toStockSnapshotView(snapshot), nil
+}
+
+// GetStockHistory returns normalized OHLCV bars for a supported chart range.
+func (a *App) GetStockHistory(contractID int64, timeRange string) (StockHistoryView, error) {
+	if contractID <= 0 {
+		return StockHistoryView{}, fmt.Errorf("a valid stock contract ID is required")
+	}
+	status := a.sessionBroker.CheckSession(a.context())
+	if !status.Ready() {
+		return StockHistoryView{}, fmt.Errorf("stock history requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	history, err := a.stockData.FetchStockHistory(a.context(), contractID, timeRange)
+	if err != nil {
+		return StockHistoryView{}, err
+	}
+	return toStockHistoryView(history), nil
 }
 
 // GetPortfolioResume generates a read-only summary from the latest normalized positions.

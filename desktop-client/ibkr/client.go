@@ -26,6 +26,9 @@ const (
 	ledgerRateSource                      = "IBKR account ledger"
 	brokerageSessionInitializationTimeout = 5 * time.Second
 	brokerageSessionPollInterval          = 250 * time.Millisecond
+	marketDataSnapshotRetryDelay          = 250 * time.Millisecond
+	marketDataSnapshotAttempts            = 6
+	marketDataFields                      = "84,86,6509,7293,7294,7295,7296,7741,7762"
 )
 
 // Client is the IBKR Client Portal Gateway adapter.
@@ -120,6 +123,55 @@ type positionResponse struct {
 	UnrealizedPnL     decimalNumber `json:"unrealizedPnl"`
 	UnrealizedPnLAlt  decimalNumber `json:"unrealizedPNL"`
 	BaseUnrealizedPnL decimalNumber `json:"baseUnrealizedPnl"`
+}
+
+type securityDefinitionSearchResponse struct {
+	ContractID    json.RawMessage                   `json:"conid"`
+	Symbol        string                            `json:"symbol"`
+	CompanyName   string                            `json:"companyName"`
+	CompanyHeader string                            `json:"companyHeader"`
+	Description   string                            `json:"description"`
+	SecurityType  string                            `json:"secType"`
+	Sections      []securityDefinitionSearchSection `json:"sections"`
+}
+
+type securityDefinitionSearchSection struct {
+	SecurityType string `json:"secType"`
+}
+
+type contractInfoResponse struct {
+	ContractID         int64  `json:"con_id"`
+	ContractIDAlt      int64  `json:"conid"`
+	Symbol             string `json:"symbol"`
+	SecurityType       string `json:"instrument_type"`
+	SecurityTypeAlt    string `json:"secType"`
+	CompanyName        string `json:"company_name"`
+	CompanyNameAlt     string `json:"companyName"`
+	Currency           string `json:"currency"`
+	Exchange           string `json:"exchange"`
+	ListingExchange    string `json:"listing_exchange"`
+	ListingExchangeAlt string `json:"listingExchange"`
+}
+
+type marketDataHistoryResponse struct {
+	Availability string                 `json:"mdAvailability"`
+	DelaySeconds int                    `json:"mktDataDelay"`
+	Data         []marketDataHistoryBar `json:"data"`
+}
+
+type marketDataHistoryBar struct {
+	Open   float64 `json:"o"`
+	Close  float64 `json:"c"`
+	Low    float64 `json:"l"`
+	High   float64 `json:"h"`
+	Volume float64 `json:"v"`
+	Time   int64   `json:"t"`
+}
+
+type stockHistoryRequest struct {
+	Period     string
+	Bar        string
+	OutsideRTH bool
 }
 
 // IBKR returns numbers as JSON numbers, strings, empty string, or null.
@@ -427,6 +479,299 @@ func (c *Client) FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error
 		Positions:      positions,
 		ExchangeRates:  exchangeRates,
 	}, nil
+}
+
+// SearchStocks merges ticker and company-name results from the authenticated gateway session.
+func (c *Client) SearchStocks(ctx context.Context, query string) ([]portfolio.InstrumentSearchResult, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []portfolio.InstrumentSearchResult{}, nil
+	}
+
+	tickerResults, tickerErr := c.searchSecurityDefinitions(ctx, strings.ToUpper(query), false)
+	nameResults, nameErr := c.searchSecurityDefinitions(ctx, query, true)
+	if tickerErr != nil && nameErr != nil {
+		return nil, fmt.Errorf("failed to search IBKR stock contracts by ticker (%v) and company name (%v)", tickerErr, nameErr)
+	}
+
+	response := append(tickerResults, nameResults...)
+	results := make([]portfolio.InstrumentSearchResult, 0, len(response))
+	seen := make(map[int64]bool)
+	for _, contract := range response {
+		if !strings.EqualFold(contract.SecurityType, "STK") && !hasSecurityType(contract.Sections, "STK") {
+			continue
+		}
+		contractID, ok := parseContractID(contract.ContractID)
+		if !ok || seen[contractID] {
+			continue
+		}
+		seen[contractID] = true
+		name, exchange := normalizeSearchIdentity(contract)
+		results = append(results, portfolio.InstrumentSearchResult{
+			ContractID: contractID,
+			Symbol:     strings.ToUpper(strings.TrimSpace(contract.Symbol)),
+			Name:       name,
+			Exchange:   exchange,
+			AssetClass: "STK",
+		})
+	}
+
+	normalizedQuery := strings.ToUpper(query)
+	sort.SliceStable(results, func(i, j int) bool {
+		iExact := results[i].Symbol == normalizedQuery
+		jExact := results[j].Symbol == normalizedQuery
+		if iExact != jExact {
+			return iExact
+		}
+		iNamePrefix := strings.HasPrefix(strings.ToUpper(results[i].Name), normalizedQuery)
+		jNamePrefix := strings.HasPrefix(strings.ToUpper(results[j].Name), normalizedQuery)
+		if iNamePrefix != jNamePrefix {
+			return iNamePrefix
+		}
+		if results[i].Symbol != results[j].Symbol {
+			return results[i].Symbol < results[j].Symbol
+		}
+		return results[i].Exchange < results[j].Exchange
+	})
+	if len(results) > 8 {
+		results = results[:8]
+	}
+	return results, nil
+}
+
+func (c *Client) searchSecurityDefinitions(ctx context.Context, query string, byName bool) ([]securityDefinitionSearchResponse, error) {
+	path := "/iserver/secdef/search?symbol=" + url.QueryEscape(query)
+	if byName {
+		path += "&name=true"
+	}
+	var response []securityDefinitionSearchResponse
+	return response, c.getJSON(ctx, path, &response)
+}
+
+func normalizeSearchIdentity(contract securityDefinitionSearchResponse) (string, string) {
+	name := strings.TrimSpace(contract.CompanyName)
+	exchange := strings.TrimSpace(contract.Description)
+	header := strings.TrimSpace(contract.CompanyHeader)
+	if exchange == "" && strings.HasSuffix(header, ")") {
+		if start := strings.LastIndex(header, "("); start >= 0 {
+			exchange = strings.TrimSpace(header[start+1 : len(header)-1])
+		}
+	}
+	if exchange != "" {
+		suffix := " (" + exchange + ")"
+		name = strings.TrimSpace(strings.TrimSuffix(name, suffix))
+	}
+	return name, exchange
+}
+
+// FetchStockSnapshot primes IBKR market data and maps available quote fields without inferring missing fundamentals.
+func (c *Client) FetchStockSnapshot(ctx context.Context, contractID int64) (portfolio.StockSnapshot, error) {
+	var info contractInfoResponse
+	infoPath := fmt.Sprintf("/iserver/contract/%d/info", contractID)
+	if err := c.getJSON(ctx, infoPath, &info); err != nil {
+		return portfolio.StockSnapshot{}, fmt.Errorf("failed to fetch IBKR stock contract details: %w", err)
+	}
+
+	path := fmt.Sprintf("/iserver/marketdata/snapshot?conids=%d&fields=%s", contractID, url.QueryEscape(marketDataFields))
+	fields, err := c.fetchMarketDataFields(ctx, path)
+	if err != nil {
+		return portfolio.StockSnapshot{}, fmt.Errorf("failed to fetch IBKR stock market data: %w", err)
+	}
+	availability := rawString(fields["6509"])
+	unavailableReason := marketDataUnavailableReason(availability)
+
+	return portfolio.StockSnapshot{
+		Instrument: portfolio.Instrument{
+			ContractID: contractID,
+			Symbol:     firstNonEmpty(info.Symbol),
+			Name:       firstNonEmpty(info.CompanyName, info.CompanyNameAlt),
+			AssetClass: firstNonEmpty(info.SecurityType, info.SecurityTypeAlt),
+			Exchange:   firstNonEmpty(info.ListingExchange, info.ListingExchangeAlt, info.Exchange),
+			Currency:   info.Currency,
+		},
+		Currency:         info.Currency,
+		OpenPrice:        optionalMarketNumber(fields["7295"], unavailableReason),
+		ClosePrice:       firstAvailableMarketNumber(unavailableReason, fields["7741"], fields["7296"]),
+		BidPrice:         optionalMarketNumber(fields["84"], unavailableReason),
+		AskPrice:         optionalMarketNumber(fields["86"], unavailableReason),
+		Volume:           optionalMarketNumber(fields["7762"], unavailableReason),
+		High52Week:       optionalMarketNumber(fields["7293"], unavailableReason),
+		Low52Week:        optionalMarketNumber(fields["7294"], unavailableReason),
+		MarketDataStatus: availability,
+		AsOf:             time.Now().UTC(),
+	}, nil
+}
+
+// FetchStockHistory requests a bounded OHLCV series for one supported chart range.
+func (c *Client) FetchStockHistory(ctx context.Context, contractID int64, timeRange string) (portfolio.StockHistory, error) {
+	request, ok := stockHistoryRanges()[timeRange]
+	if !ok {
+		return portfolio.StockHistory{}, fmt.Errorf("unsupported stock history range %q", timeRange)
+	}
+	query := url.Values{
+		"conid":      {strconv.FormatInt(contractID, 10)},
+		"period":     {request.Period},
+		"bar":        {request.Bar},
+		"outsideRth": {strconv.FormatBool(request.OutsideRTH)},
+		"source":     {"Last"},
+	}
+	var response marketDataHistoryResponse
+	if err := c.getJSON(ctx, "/iserver/marketdata/history?"+query.Encode(), &response); err != nil {
+		return portfolio.StockHistory{}, fmt.Errorf("failed to fetch IBKR stock history: %w", err)
+	}
+
+	points := make([]portfolio.StockHistoryPoint, 0, len(response.Data))
+	for _, bar := range response.Data {
+		if bar.Time <= 0 {
+			continue
+		}
+		points = append(points, portfolio.StockHistoryPoint{
+			Time: marketDataTime(bar.Time), Open: bar.Open, High: bar.High,
+			Low: bar.Low, Close: bar.Close, Volume: bar.Volume,
+		})
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].Time.Before(points[j].Time) })
+	reason := ""
+	if len(points) == 0 {
+		reason = "IBKR returned no historical bars for this range or market-data entitlement"
+	}
+	return portfolio.StockHistory{
+		Range: timeRange, Points: points, MarketDataStatus: response.Availability,
+		DelaySeconds: response.DelaySeconds, UnavailableReason: reason,
+	}, nil
+}
+
+func stockHistoryRanges() map[string]stockHistoryRequest {
+	return map[string]stockHistoryRequest{
+		"24h": {Period: "1d", Bar: "5min", OutsideRTH: true},
+		"1m":  {Period: "1m", Bar: "1h", OutsideRTH: false},
+		"1y":  {Period: "1y", Bar: "1d", OutsideRTH: false},
+		"all": {Period: "15y", Bar: "1w", OutsideRTH: false},
+	}
+}
+
+func (c *Client) fetchMarketDataFields(ctx context.Context, path string) (map[string]json.RawMessage, error) {
+	fields := make(map[string]json.RawMessage)
+	for attempt := 0; attempt < marketDataSnapshotAttempts; attempt++ {
+		var response []map[string]json.RawMessage
+		if err := c.getJSON(ctx, path, &response); err != nil {
+			return nil, err
+		}
+		if len(response) > 0 && response[0] != nil {
+			mergeMarketDataFields(fields, response[0])
+			if attempt > 0 && hasCompleteStockSnapshot(fields) {
+				return fields, nil
+			}
+		}
+		if attempt < marketDataSnapshotAttempts-1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(marketDataSnapshotRetryDelay):
+			}
+		}
+	}
+	return fields, nil
+}
+
+func mergeMarketDataFields(target, incoming map[string]json.RawMessage) {
+	for key, value := range incoming {
+		text := strings.TrimSpace(rawString(value))
+		if text != "" && text != "-" {
+			target[key] = value
+		}
+	}
+}
+
+func hasCompleteStockSnapshot(fields map[string]json.RawMessage) bool {
+	for _, key := range []string{"84", "86", "7293", "7294", "7295", "7762"} {
+		if _, ok := parseMarketNumber(fields[key]); !ok {
+			return false
+		}
+	}
+	_, priorCloseAvailable := parseMarketNumber(fields["7741"])
+	_, closeAvailable := parseMarketNumber(fields["7296"])
+	return priorCloseAvailable || closeAvailable
+}
+
+func firstAvailableMarketNumber(reason string, values ...json.RawMessage) portfolio.OptionalNumber {
+	for _, value := range values {
+		if parsed, ok := parseMarketNumber(value); ok {
+			return portfolio.OptionalNumber{Value: parsed, Available: true}
+		}
+	}
+	return portfolio.OptionalNumber{UnavailableReason: reason}
+}
+
+func optionalMarketNumber(value json.RawMessage, reason string) portfolio.OptionalNumber {
+	if parsed, ok := parseMarketNumber(value); ok {
+		return portfolio.OptionalNumber{Value: parsed, Available: true}
+	}
+	return portfolio.OptionalNumber{UnavailableReason: reason}
+}
+
+func parseMarketNumber(value json.RawMessage) (float64, bool) {
+	text := rawString(value)
+	text = strings.TrimSpace(strings.ReplaceAll(text, ",", ""))
+	if text == "" || text == "-" {
+		return 0, false
+	}
+	if (text[0] == 'C' || text[0] == 'H') && len(text) > 1 {
+		text = strings.TrimSpace(text[1:])
+	}
+	multiplier := 1.0
+	if len(text) > 1 {
+		switch text[len(text)-1] {
+		case 'K', 'k':
+			multiplier, text = 1_000, text[:len(text)-1]
+		case 'M', 'm':
+			multiplier, text = 1_000_000, text[:len(text)-1]
+		case 'B', 'b':
+			multiplier, text = 1_000_000_000, text[:len(text)-1]
+		}
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+	return parsed * multiplier, err == nil
+}
+
+func rawString(value json.RawMessage) string {
+	if len(value) == 0 || string(value) == "null" {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err == nil {
+		return text
+	}
+	return strings.TrimSpace(string(value))
+}
+
+func marketDataUnavailableReason(availability string) string {
+	if strings.HasPrefix(availability, "N") {
+		return "Market data is not subscribed for this contract"
+	}
+	return "IBKR did not return this value"
+}
+
+func marketDataTime(value int64) time.Time {
+	if value >= 1_000_000_000_000 {
+		return time.UnixMilli(value).UTC()
+	}
+	return time.Unix(value, 0).UTC()
+}
+
+func hasSecurityType(sections []securityDefinitionSearchSection, securityType string) bool {
+	for _, section := range sections {
+		if strings.EqualFold(section.SecurityType, securityType) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseContractID(value json.RawMessage) (int64, bool) {
+	text := strings.Trim(strings.TrimSpace(string(value)), `"`)
+	contractID, err := strconv.ParseInt(text, 10, 64)
+	return contractID, err == nil && contractID > 0
 }
 
 // fetchAccount selects the first available account for the application's single-account scope.

@@ -55,6 +55,51 @@ type InstrumentView struct {
 	Industry   string
 }
 
+type InstrumentSearchResultView struct {
+	ContractID int64
+	Symbol     string
+	Name       string
+	Exchange   string
+	AssetClass string
+}
+
+type OptionalNumberView struct {
+	Value             float64
+	Available         bool
+	UnavailableReason string
+}
+
+type StockSnapshotView struct {
+	Instrument       InstrumentView
+	Currency         string
+	OpenPrice        OptionalNumberView
+	ClosePrice       OptionalNumberView
+	BidPrice         OptionalNumberView
+	AskPrice         OptionalNumberView
+	Volume           OptionalNumberView
+	High52Week       OptionalNumberView
+	Low52Week        OptionalNumberView
+	MarketDataStatus string
+	AsOf             string
+}
+
+type StockHistoryPointView struct {
+	Time   string
+	Open   float64
+	High   float64
+	Low    float64
+	Close  float64
+	Volume float64
+}
+
+type StockHistoryView struct {
+	Range             string
+	Points            []StockHistoryPointView
+	MarketDataStatus  string
+	DelaySeconds      int
+	UnavailableReason string
+}
+
 type PositionView struct {
 	Instrument        InstrumentView
 	Quantity          float64
@@ -183,6 +228,44 @@ func toPortfolioView(p portfolio.Portfolio, result analytics.Result) PortfolioVi
 
 func toMoneyView(m portfolio.Money) MoneyView {
 	return MoneyView{Amount: m.Amount, Currency: m.Currency, Available: m.Available}
+}
+
+func toInstrumentSearchResultViews(results []portfolio.InstrumentSearchResult) []InstrumentSearchResultView {
+	views := make([]InstrumentSearchResultView, 0, len(results))
+	for _, result := range results {
+		views = append(views, InstrumentSearchResultView(result))
+	}
+	return views
+}
+
+func toStockSnapshotView(snapshot portfolio.StockSnapshot) StockSnapshotView {
+	return StockSnapshotView{
+		Instrument:       InstrumentView(snapshot.Instrument),
+		Currency:         snapshot.Currency,
+		OpenPrice:        OptionalNumberView(snapshot.OpenPrice),
+		ClosePrice:       OptionalNumberView(snapshot.ClosePrice),
+		BidPrice:         OptionalNumberView(snapshot.BidPrice),
+		AskPrice:         OptionalNumberView(snapshot.AskPrice),
+		Volume:           OptionalNumberView(snapshot.Volume),
+		High52Week:       OptionalNumberView(snapshot.High52Week),
+		Low52Week:        OptionalNumberView(snapshot.Low52Week),
+		MarketDataStatus: snapshot.MarketDataStatus,
+		AsOf:             snapshot.AsOf.Format(time.RFC3339),
+	}
+}
+
+func toStockHistoryView(history portfolio.StockHistory) StockHistoryView {
+	points := make([]StockHistoryPointView, 0, len(history.Points))
+	for _, point := range history.Points {
+		points = append(points, StockHistoryPointView{
+			Time: point.Time.Format(time.RFC3339), Open: point.Open, High: point.High,
+			Low: point.Low, Close: point.Close, Volume: point.Volume,
+		})
+	}
+	return StockHistoryView{
+		Range: history.Range, Points: points, MarketDataStatus: history.MarketDataStatus,
+		DelaySeconds: history.DelaySeconds, UnavailableReason: history.UnavailableReason,
+	}
 }
 
 func toRatioView(ratio analytics.Ratio) RatioView {

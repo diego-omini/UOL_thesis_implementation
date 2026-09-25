@@ -88,6 +88,150 @@ func TestFetchPortfolioDoesNotRequireTradingSession(t *testing.T) {
 	}
 }
 
+func TestSearchStocksFiltersNonStocksAndOrdersExactTickerFirst(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/iserver/secdef/search" || r.URL.Query().Get("symbol") != "AA" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"conid":"2","symbol":"AAPL","companyName":"Apple Inc.","description":"NASDAQ","sections":[{"secType":"STK"}]},
+			{"conid":3,"symbol":"AA","companyName":"Alcoa Corporation","description":"NYSE","sections":[{"secType":"STK"}]},
+			{"conid":"4","symbol":"AA","companyName":"Alcoa option","description":"CBOE","sections":[{"secType":"OPT"}]}
+		]`))
+	}))
+	defer server.Close()
+
+	results, err := NewClient(server.URL, false).SearchStocks(context.Background(), " aa ")
+	if err != nil {
+		t.Fatalf("SearchStocks() returned an error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("SearchStocks() returned %d results, want 2: %#v", len(results), results)
+	}
+	if results[0].Symbol != "AA" || results[0].ContractID != 3 {
+		t.Fatalf("first result = %#v, want exact AA stock", results[0])
+	}
+	if results[1].Symbol != "AAPL" || results[1].AssetClass != "STK" {
+		t.Fatalf("second result = %#v, want AAPL stock", results[1])
+	}
+}
+
+func TestSearchStocksIncludesCompanyNameMatches(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/iserver/secdef/search" {
+			http.Error(w, "unexpected path", http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("name") == "true" {
+			_, _ = w.Write([]byte(`[{"conid":"265598","symbol":"AAPL","companyName":"APPLE INC (NASDAQ)","companyHeader":"AAPL APPLE INC (NASDAQ)","secType":"STK","sections":[]}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	results, err := NewClient(server.URL, false).SearchStocks(context.Background(), "Apple")
+	if err != nil {
+		t.Fatalf("SearchStocks() returned an error: %v", err)
+	}
+	if len(results) != 1 || results[0].Symbol != "AAPL" || results[0].Name != "APPLE INC" || results[0].Exchange != "NASDAQ" {
+		t.Fatalf("unexpected company-name search results: %#v", results)
+	}
+}
+
+func TestFetchStockSnapshotMapsQuoteFieldsAfterPreflight(t *testing.T) {
+	snapshotCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/iserver/contract/265598/info":
+			_, _ = w.Write([]byte(`{"con_id":265598,"symbol":"AAPL","instrument_type":"STK","company_name":"APPLE INC","currency":"USD","exchange":"SMART","listing_exchange":"NASDAQ"}`))
+		case "/iserver/marketdata/snapshot":
+			snapshotCalls++
+			if r.URL.Query().Get("conids") != "265598" {
+				http.Error(w, "unexpected conid", http.StatusBadRequest)
+				return
+			}
+			if snapshotCalls == 1 {
+				_, _ = w.Write([]byte(`[null]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[{"84":"224.10","86":"224.14","6509":"DPB","7293":"237.49","7294":"164.08","7295":"223.50","7741":"222.91","7762":"45,120,100"}]`))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	snapshot, err := NewClient(server.URL, false).FetchStockSnapshot(context.Background(), 265598)
+	if err != nil {
+		t.Fatalf("FetchStockSnapshot() returned an error: %v", err)
+	}
+	if snapshotCalls != 2 || snapshot.Instrument.Symbol != "AAPL" || snapshot.Currency != "USD" {
+		t.Fatalf("unexpected snapshot identity or calls: calls=%d snapshot=%#v", snapshotCalls, snapshot)
+	}
+	if !snapshot.BidPrice.Available || snapshot.BidPrice.Value != 224.10 || snapshot.Volume.Value != 45120100 {
+		t.Fatalf("unexpected quote mapping: %#v", snapshot)
+	}
+}
+
+func TestFetchStockSnapshotMergesValuesFromSuccessiveResponses(t *testing.T) {
+	snapshotCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/iserver/contract/265598/info":
+			_, _ = w.Write([]byte(`{"con_id":265598,"symbol":"AAPL","currency":"USD"}`))
+		case "/iserver/marketdata/snapshot":
+			snapshotCalls++
+			responses := []string{
+				`[{"6509":"DPB","84":"224.10","86":"224.14"}]`,
+				`[{"7293":"237.49","7294":"164.08","7295":"223.50"}]`,
+				`[{"7741":"222.91","7762":"45,120,100"}]`,
+			}
+			index := snapshotCalls - 1
+			if index >= len(responses) {
+				index = len(responses) - 1
+			}
+			_, _ = w.Write([]byte(responses[index]))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	snapshot, err := NewClient(server.URL, false).FetchStockSnapshot(context.Background(), 265598)
+	if err != nil {
+		t.Fatalf("FetchStockSnapshot() returned an error: %v", err)
+	}
+	if snapshotCalls != 3 || !snapshot.BidPrice.Available || !snapshot.High52Week.Available || !snapshot.Volume.Available {
+		t.Fatalf("snapshot responses were not merged: calls=%d snapshot=%#v", snapshotCalls, snapshot)
+	}
+}
+
+func TestFetchStockHistoryMapsRangeAndBars(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/iserver/marketdata/history" || r.URL.Query().Get("period") != "1y" || r.URL.Query().Get("bar") != "1d" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"mdAvailability":"D","mktDataDelay":900,"data":[{"o":100,"h":105,"l":99,"c":104,"v":1200,"t":1788768000000}]}`))
+	}))
+	defer server.Close()
+
+	history, err := NewClient(server.URL, false).FetchStockHistory(context.Background(), 265598, "1y")
+	if err != nil {
+		t.Fatalf("FetchStockHistory() returned an error: %v", err)
+	}
+	if len(history.Points) != 1 || history.Points[0].Close != 104 || history.DelaySeconds != 900 {
+		t.Fatalf("unexpected history: %#v", history)
+	}
+}
+
 func TestCheckSessionAcceptsOnlyPaperTrading(t *testing.T) {
 	tests := []struct {
 		name          string

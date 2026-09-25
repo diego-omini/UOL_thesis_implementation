@@ -266,6 +266,26 @@ export namespace main {
 	}
 	
 	
+	export class InstrumentSearchResultView {
+	    ContractID: number;
+	    Symbol: string;
+	    Name: string;
+	    Exchange: string;
+	    AssetClass: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new InstrumentSearchResultView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ContractID = source["ContractID"];
+	        this.Symbol = source["Symbol"];
+	        this.Name = source["Name"];
+	        this.Exchange = source["Exchange"];
+	        this.AssetClass = source["AssetClass"];
+	    }
+	}
 	export class InstrumentView {
 	    ContractID: number;
 	    Symbol: string;
@@ -293,6 +313,22 @@ export namespace main {
 	    }
 	}
 	
+	export class OptionalNumberView {
+	    Value: number;
+	    Available: boolean;
+	    UnavailableReason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OptionalNumberView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Value = source["Value"];
+	        this.Available = source["Available"];
+	        this.UnavailableReason = source["UnavailableReason"];
+	    }
+	}
 	export class PositionView {
 	    Instrument: InstrumentView;
 	    Quantity: number;
@@ -405,6 +441,116 @@ export namespace main {
 	        this.Ready = source["Ready"];
 	        this.Message = source["Message"];
 	    }
+	}
+	export class StockHistoryPointView {
+	    Time: string;
+	    Open: number;
+	    High: number;
+	    Low: number;
+	    Close: number;
+	    Volume: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new StockHistoryPointView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Time = source["Time"];
+	        this.Open = source["Open"];
+	        this.High = source["High"];
+	        this.Low = source["Low"];
+	        this.Close = source["Close"];
+	        this.Volume = source["Volume"];
+	    }
+	}
+	export class StockHistoryView {
+	    Range: string;
+	    Points: StockHistoryPointView[];
+	    MarketDataStatus: string;
+	    DelaySeconds: number;
+	    UnavailableReason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StockHistoryView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Range = source["Range"];
+	        this.Points = this.convertValues(source["Points"], StockHistoryPointView);
+	        this.MarketDataStatus = source["MarketDataStatus"];
+	        this.DelaySeconds = source["DelaySeconds"];
+	        this.UnavailableReason = source["UnavailableReason"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class StockSnapshotView {
+	    Instrument: InstrumentView;
+	    Currency: string;
+	    OpenPrice: OptionalNumberView;
+	    ClosePrice: OptionalNumberView;
+	    BidPrice: OptionalNumberView;
+	    AskPrice: OptionalNumberView;
+	    Volume: OptionalNumberView;
+	    High52Week: OptionalNumberView;
+	    Low52Week: OptionalNumberView;
+	    MarketDataStatus: string;
+	    AsOf: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StockSnapshotView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Instrument = this.convertValues(source["Instrument"], InstrumentView);
+	        this.Currency = source["Currency"];
+	        this.OpenPrice = this.convertValues(source["OpenPrice"], OptionalNumberView);
+	        this.ClosePrice = this.convertValues(source["ClosePrice"], OptionalNumberView);
+	        this.BidPrice = this.convertValues(source["BidPrice"], OptionalNumberView);
+	        this.AskPrice = this.convertValues(source["AskPrice"], OptionalNumberView);
+	        this.Volume = this.convertValues(source["Volume"], OptionalNumberView);
+	        this.High52Week = this.convertValues(source["High52Week"], OptionalNumberView);
+	        this.Low52Week = this.convertValues(source["Low52Week"], OptionalNumberView);
+	        this.MarketDataStatus = source["MarketDataStatus"];
+	        this.AsOf = source["AsOf"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

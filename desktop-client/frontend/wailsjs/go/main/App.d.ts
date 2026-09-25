@@ -14,6 +14,10 @@ export function GetPortfolioResume():Promise<main.AIResponseView>;
 
 export function GetSessionStatus():Promise<main.SessionStatusView>;
 
+export function GetStockHistory(arg1:number,arg2:string):Promise<main.StockHistoryView>;
+
+export function GetStockSnapshot(arg1:number):Promise<main.StockSnapshotView>;
+
 export function InitializeSession():Promise<main.SessionStatusView>;
 
 export function KeepSessionAlive():Promise<main.SessionStatusView>;
@@ -21,5 +25,7 @@ export function KeepSessionAlive():Promise<main.SessionStatusView>;
 export function Logout():Promise<main.SessionStatusView>;
 
 export function OpenIBKRLogin():Promise<void>;
+
+export function SearchStocks(arg1:string):Promise<Array<main.InstrumentSearchResultView>>;
 
 export function StartGateway():Promise<main.SessionStatusView>;

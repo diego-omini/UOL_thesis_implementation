@@ -51,6 +51,17 @@ type PortfolioProvider interface {
 	FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error)
 }
 
+// InstrumentSearchProvider exposes broker-backed stock discovery without leaking broker DTOs.
+type InstrumentSearchProvider interface {
+	SearchStocks(ctx context.Context, query string) ([]portfolio.InstrumentSearchResult, error)
+}
+
+// StockDataProvider exposes current and historical stock market data.
+type StockDataProvider interface {
+	FetchStockSnapshot(ctx context.Context, contractID int64) (portfolio.StockSnapshot, error)
+	FetchStockHistory(ctx context.Context, contractID int64, timeRange string) (portfolio.StockHistory, error)
+}
+
 // SessionProvider exposes lifecycle operations without exposing broker credentials.
 type SessionProvider interface {
 	CheckSession(ctx context.Context) SessionStatus
