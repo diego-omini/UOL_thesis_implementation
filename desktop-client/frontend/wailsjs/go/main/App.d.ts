@@ -16,6 +16,8 @@ export function GetSessionStatus():Promise<main.SessionStatusView>;
 
 export function GetStockHistory(arg1:number,arg2:string):Promise<main.StockHistoryView>;
 
+export function GetStockNews(arg1:number):Promise<main.AIResponseView>;
+
 export function GetStockSnapshot(arg1:number):Promise<main.StockSnapshotView>;
 
 export function InitializeSession():Promise<main.SessionStatusView>;

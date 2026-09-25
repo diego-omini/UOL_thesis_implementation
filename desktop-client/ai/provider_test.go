@@ -34,6 +34,12 @@ No reliable recent item was found.
 ## Coverage and sources
 Covered one of one positions.`
 
+const validStockNews = `## Latest company news
+### AAPL — Apple Inc.
+No reliable recent item was found.
+## Coverage and sources
+Research completed at the supplied timestamp.`
+
 func (p *recordingProvider) Chat(_ context.Context, request ChatRequest) (ChatResponse, error) {
 	p.requests = append(p.requests, request)
 	if len(p.responses) == 0 {
@@ -176,5 +182,48 @@ func TestPortfolioNewsRejectsEmptyPortfolio(t *testing.T) {
 	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
 	if _, err := counselor.PortfolioNews(context.Background(), portfolio.Portfolio{}, time.Now()); err == nil {
 		t.Fatal("expected an empty portfolio error")
+	}
+}
+
+func TestStockNewsExecutesActiveCatalogPrompt(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	provider := &recordingProvider{responses: []ChatResponse{{
+		Message: Message{Role: "assistant", Content: validStockNews}, Model: "test-model",
+	}}}
+	researchTools := NewResearchToolsFactory(unusedResearchProvider{}, []string{"sec.gov"}, 5)
+	counselor := NewCounselor(NewExecutor(catalog, provider), researchTools)
+	researchTime := time.Date(2026, time.September, 25, 12, 0, 0, 0, time.UTC)
+	instrument := portfolio.Instrument{Symbol: "AAPL", Name: "Apple Inc.", AssetClass: "STK"}
+
+	response, err := counselor.StockNews(context.Background(), instrument, researchTime)
+	if err != nil {
+		t.Fatalf("StockNews returned an error: %v", err)
+	}
+	if response.Text != validStockNews || response.PromptID != StockNewsPromptAlias || response.PromptVersion != 1 {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	request := provider.requests[0]
+	userPrompt := request.Messages[1].Content
+	for _, expected := range []string{"2026-09-25T12:00:00Z", "AAPL | Apple Inc. | asset class: STK"} {
+		if !strings.Contains(userPrompt, expected) {
+			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, userPrompt)
+		}
+	}
+	if request.Settings.Temperature != 0.1 || request.Settings.MaxTokens != 2000 || len(request.Tools) != 2 {
+		t.Fatalf("unexpected stock-news request: %+v", request)
+	}
+}
+
+func TestStockNewsRejectsMissingPublicIdentity(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
+	if _, err := counselor.StockNews(context.Background(), portfolio.Instrument{}, time.Now()); err == nil {
+		t.Fatal("expected a missing stock identity error")
 	}
 }

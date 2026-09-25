@@ -1,6 +1,6 @@
 # Desktop client
 
-The application starts and monitors a local Interactive Brokers Client Portal Gateway, verifies that its authenticated session is for paper trading, retrieves the account summary and all open positions, calculates portfolio allocation and concentration metrics, and can request a read-only portfolio resume or per-position news digest from a local Ollama model.
+The application starts and monitors a local Interactive Brokers Client Portal Gateway, verifies that its authenticated session is for paper trading, retrieves the account summary and all open positions, calculates portfolio allocation and concentration metrics, and can request read-only portfolio or stock research from a local Ollama model.
 
 Only paper trading is within scope. The current version uses the first account returned by the gateway.
 
@@ -17,7 +17,7 @@ Only paper trading is within scope. The current version uses the first account r
 
 The gateway can be downloaded from the [Interactive Brokers API page](https://www.interactivebrokers.com/en/trading/ib-api.php).
 
-The default AI model is `llama3.2`. Install Ollama and make that model available before using the Positions prompts:
+The default AI model is `llama3.2`. Install Ollama and make that model available before using the counselor prompts:
 
 ```powershell
 ollama pull llama3.2
@@ -52,7 +52,7 @@ The default settings target the local Client Portal Gateway and Ollama services:
 | `IBKR_GATEWAY_DIR` | Stored first-run selection | Extracted `clientportal.gw` directory |
 | `AI_PROVIDER` | `ollama` | AI provider selected by the application composition layer |
 | `AI_BASE_URL` | `http://localhost:11434/api` | Base URL for the Ollama API |
-| `AI_MODEL` | `llama3.2` | Ollama model used for Positions prompts |
+| `AI_MODEL` | `llama3.2` | Ollama model used for counselor prompts |
 | `OLLAMA_API_KEY` | Empty | API key for Ollama-hosted web search and page fetch |
 | `AI_SEARCH_BASE_URL` | `https://ollama.com/api` | Ollama web-research API base URL |
 | `AI_SEARCH_ALLOWED_DOMAINS` | Curated default list | Comma-separated reliable domains accepted from search results |
@@ -76,7 +76,7 @@ TLS verification should only be disabled for the locally hosted gateway. Do not 
 
 The AI provider is isolated behind an application-owned interface. The first implementation supports `ollama`; selecting another provider requires a corresponding adapter. Immutable prompt versions are stored below `ai/prompts`, while `ai/prompts/catalog.yaml` selects the active version for each alias. Each prompt declares its parameters, tools, system and user templates, output contract, temperature, token ceiling, and maximum response length. The generic executor validates and renders the selected prompt, runs bounded tool calls, and gives a malformed or overlong final response one tool-free repair attempt instead of exposing or truncating it.
 
-The portfolio resume receives normalized positions and deterministic concentration, sector, asset-class, currency, and data-quality context. The portfolio-news prompt researches the latest material event for every open position and reports when reliable recent evidence is unavailable. Prompt version and provider/model metadata are returned with each response. Search tools accept only an exact position name and ticker plus a fixed research topic. Results are restricted to HTTPS URLs on the configured reliable-domain list, include UTC retrieval times, and page fetches are limited to URLs accepted earlier in the same execution. The API key is read only from the environment and is not saved by the application. The AI path has no broker mutation or order-submission capability.
+The portfolio resume receives normalized positions and deterministic concentration, sector, asset-class, currency, and data-quality context. The portfolio-news prompt researches every open position, while the stock-news prompt summarizes recent material developments for the company open in the stock detail view. Both news prompts report when reliable recent evidence is unavailable. Prompt version and provider/model metadata are returned with each response. Search tools accept only an exact public instrument name and ticker plus a fixed research topic. Results are restricted to HTTPS URLs on the configured reliable-domain list, include UTC retrieval times, and page fetches are limited to URLs accepted earlier in the same execution. The API key is read only from the environment and is not saved by the application. The AI path has no broker mutation or order-submission capability.
 
 ## Analytics
 
@@ -120,6 +120,6 @@ wails build
 - Account selection is not yet exposed in the interface.
 - The application depends on IBKR's locally installed gateway and mandatory browser authentication.
 - Historical portfolio snapshots and manual paper orders are not implemented yet.
-- The prompt catalog currently contains a portfolio resume and a per-position portfolio-news digest.
+- The prompt catalog currently contains a portfolio resume, a per-position portfolio-news digest, and a single-stock news summary.
 - Web research requires `OLLAMA_API_KEY`; without it, the counselor continues with deterministic portfolio context and reports the research limitation.
 - Fund holdings can be researched, but deterministic fund look-through aggregation and structured grounding checks are not implemented yet.

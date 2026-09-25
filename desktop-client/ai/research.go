@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// PublicInstrument is the only portfolio-derived identity permitted in search requests.
+// PublicInstrument is the only application-derived identity permitted in search requests.
 type PublicInstrument struct {
 	Name   string
 	Ticker string
@@ -126,7 +126,7 @@ func (t *instrumentSearchTool) Definition() ToolDefinition {
 	sort.Strings(topics)
 	return ToolDefinition{
 		Name:        "search_instrument",
-		Description: "Search approved public sources for one portfolio instrument. Only its public name, ticker, and selected research topic leave the application.",
+		Description: "Search approved public sources for one instrument. Only its public name, ticker, and selected research topic leave the application.",
 		Parameters: map[string]any{
 			"type":     "object",
 			"required": []string{"name", "ticker", "topic"},
@@ -147,7 +147,7 @@ func (t *instrumentSearchTool) Execute(ctx context.Context, arguments map[string
 	}
 	instrument, ok := t.session.instruments[instrumentKey(requested)]
 	if !ok {
-		return "", fmt.Errorf("instrument search rejected because the name and ticker are not an allowed portfolio identity")
+		return "", fmt.Errorf("instrument search rejected because the name and ticker are not an allowed public identity")
 	}
 	topic := stringArgument(arguments, "topic")
 	terms, ok := researchTopics[topic]

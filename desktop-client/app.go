@@ -271,6 +271,32 @@ func (a *App) GetStockHistory(contractID int64, timeRange string) (StockHistoryV
 	return toStockHistoryView(history), nil
 }
 
+// GetStockNews researches recent material news for one broker-verified stock identity.
+func (a *App) GetStockNews(contractID int64) (AIResponseView, error) {
+	if contractID <= 0 {
+		return AIResponseView{}, fmt.Errorf("a valid stock contract ID is required")
+	}
+	status := a.sessionBroker.CheckSession(a.context())
+	if !status.Ready() {
+		return AIResponseView{}, fmt.Errorf("stock news requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	snapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("stock news identity lookup failed: %w", err)
+	}
+	response, err := a.aiCounselor.StockNews(a.context(), snapshot.Instrument, time.Now())
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("stock news failed: %w", err)
+	}
+	return AIResponseView{
+		Text:          response.Text,
+		Provider:      a.aiProviderName,
+		Model:         response.Model,
+		PromptID:      response.PromptID,
+		PromptVersion: response.PromptVersion,
+	}, nil
+}
+
 // GetPortfolioResume generates a read-only summary from the latest normalized positions.
 func (a *App) GetPortfolioResume() (AIResponseView, error) {
 	portfolioSnapshot, err := a.fetchPortfolio()

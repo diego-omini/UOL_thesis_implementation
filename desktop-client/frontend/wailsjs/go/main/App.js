@@ -30,6 +30,10 @@ export function GetStockHistory(arg1, arg2) {
   return window['go']['main']['App']['GetStockHistory'](arg1, arg2);
 }
 
+export function GetStockNews(arg1) {
+  return window['go']['main']['App']['GetStockNews'](arg1);
+}
+
 export function GetStockSnapshot(arg1) {
   return window['go']['main']['App']['GetStockSnapshot'](arg1);
 }

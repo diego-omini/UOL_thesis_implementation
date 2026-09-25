@@ -26,3 +26,35 @@ body {
     height: 100vh;
     text-align: center;
 }
+
+button,
+input {
+    font-family: inherit;
+}
+
+.primary-button,
+.secondary-button {
+    min-height: 40px;
+    padding: 0 16px;
+    border-radius: 4px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.primary-button {
+    border: 1px solid #1f6f8b;
+    background: #1f6f8b;
+    color: white;
+}
+
+.secondary-button {
+    border: 1px solid #b8c4cf;
+    background: white;
+    color: #293646;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}

@@ -5,3 +5,6 @@ aliases:
   portfolio_resume:
     id: portfolio_resume
     version: 2
+  stock_news:
+    id: stock_news
+    version: 1
