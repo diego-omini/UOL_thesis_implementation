@@ -10,6 +10,14 @@ export function ChooseGatewayDirectory() {
   return window['go']['main']['App']['ChooseGatewayDirectory']();
 }
 
+export function ConfirmOrder(arg1) {
+  return window['go']['main']['App']['ConfirmOrder'](arg1);
+}
+
+export function GetOrderAnalysis(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetOrderAnalysis'](arg1, arg2, arg3);
+}
+
 export function GetPortfolio() {
   return window['go']['main']['App']['GetPortfolio']();
 }
@@ -52,6 +60,14 @@ export function Logout() {
 
 export function OpenIBKRLogin() {
   return window['go']['main']['App']['OpenIBKRLogin']();
+}
+
+export function PreviewOrder(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PreviewOrder'](arg1, arg2, arg3);
+}
+
+export function RespondToOrderWarning(arg1, arg2) {
+  return window['go']['main']['App']['RespondToOrderWarning'](arg1, arg2);
 }
 
 export function SearchStocks(arg1) {

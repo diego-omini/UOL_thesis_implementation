@@ -2,3 +2,4 @@
 import './lib/stock-chart.test'
 import './lib/format.test'
 import './lib/stock-search.test'
+import './lib/trading.test'

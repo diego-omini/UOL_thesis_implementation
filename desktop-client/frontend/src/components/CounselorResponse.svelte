@@ -98,4 +98,25 @@
     background: #e8f0f4;
     font-family: Consolas, monospace;
   }
+
+  .ai-response-content :global(table) {
+    width: 100%;
+    margin: 12px 0;
+    border-collapse: collapse;
+    background: white;
+    font-size: 14px;
+  }
+
+  .ai-response-content :global(th),
+  .ai-response-content :global(td) {
+    padding: 8px 10px;
+    border: 1px solid #d8e0e8;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .ai-response-content :global(th) {
+    background: #e8f0f4;
+    color: #243444;
+  }
 </style>

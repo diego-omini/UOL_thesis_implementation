@@ -10,6 +10,7 @@ import (
 
 	"wails/analytics"
 	"wails/portfolio"
+	"wails/stockanalysis"
 )
 
 type recordingProvider struct {
@@ -39,6 +40,20 @@ const validStockNews = `## Latest company news
 No reliable recent item was found.
 ## Coverage and sources
 Research completed at the supplied timestamp.`
+
+const validOrderAnalysis = `## Order analysis
+**Valuation profile: indeterminate**
+**Evidence confidence: low**
+## Deterministic metrics
+Metrics.
+## Valuation and fundamentals
+Unavailable.
+## Business and financial risks
+Unavailable.
+## Order and portfolio impact
+Impact.
+## Evidence, confidence, and limitations
+Limitations.`
 
 func (p *recordingProvider) Chat(_ context.Context, request ChatRequest) (ChatResponse, error) {
 	p.requests = append(p.requests, request)
@@ -225,5 +240,46 @@ func TestStockNewsRejectsMissingPublicIdentity(t *testing.T) {
 	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
 	if _, err := counselor.StockNews(context.Background(), portfolio.Instrument{}, time.Now()); err == nil {
 		t.Fatal("expected a missing stock identity error")
+	}
+}
+
+func TestOrderAnalysisExecutesActiveCatalogPrompt(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	provider := &recordingProvider{responses: []ChatResponse{{
+		Message: Message{Role: "assistant", Content: validOrderAnalysis}, Model: "test-model",
+	}}}
+	counselor := NewCounselor(NewExecutor(catalog, provider), NewResearchToolsFactory(unusedResearchProvider{}, []string{"sec.gov"}, 5))
+	result := stockanalysis.Result{
+		CalculatedAt: time.Date(2026, time.September, 26, 12, 0, 0, 0, time.UTC),
+		Instrument:   portfolio.Instrument{Symbol: "NESN", Name: "Nestlé S.A.", Exchange: "SIX", Currency: "CHF"},
+		Side:         "BUY", Quantity: 4,
+		EstimatedPrice:      portfolio.Money{Amount: 72.5, Currency: "CHF", Available: true},
+		EstimatedOrderValue: portfolio.Money{Amount: 290, Currency: "CHF", Available: true},
+		BaseOrderValue:      portfolio.Money{Amount: 290, Currency: "CHF", Available: true},
+		CashBalance:         portfolio.Money{Amount: 1000, Currency: "CHF", Available: true},
+		CashUsage:           stockanalysis.Metric{Value: .29, Available: true},
+		CurrentWeight:       stockanalysis.Metric{Value: .05, Available: true},
+		ResultingWeight:     stockanalysis.Metric{Value: .075, Available: true},
+		WeightChange:        stockanalysis.Metric{Value: .025, Available: true},
+		TotalReturn:         stockanalysis.Metric{Value: -.1, Available: true},
+	}
+	response, err := counselor.OrderAnalysis(context.Background(), result)
+	if err != nil {
+		t.Fatalf("OrderAnalysis returned an error: %v", err)
+	}
+	if response.Text != validOrderAnalysis || response.PromptID != OrderAnalysisPromptAlias {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	request := provider.requests[0]
+	for _, expected := range []string{"NESN | Nestlé S.A.", "Side: BUY", "Cash usage: 29.0%", "Resulting portfolio weight: 7.5%"} {
+		if !strings.Contains(request.Messages[1].Content, expected) {
+			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, request.Messages[1].Content)
+		}
+	}
+	if request.Settings.Temperature != .1 || request.Settings.MaxTokens != 1800 || len(request.Tools) != 2 {
+		t.Fatalf("unexpected order-analysis request: %+v", request)
 	}
 }

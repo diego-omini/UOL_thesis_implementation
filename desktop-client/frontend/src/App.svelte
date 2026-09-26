@@ -340,6 +340,7 @@
           position={selectedPosition}
           on:back={showDashboard}
           on:sessionIssue={() => void refreshSession()}
+          on:tradeComplete={() => void refreshPortfolio()}
         />
       {/key}
     {:else if loading}

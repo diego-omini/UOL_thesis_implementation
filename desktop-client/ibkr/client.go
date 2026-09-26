@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -172,6 +173,41 @@ type stockHistoryRequest struct {
 	Period     string
 	Bar        string
 	OutsideRTH bool
+}
+
+type orderRequestEnvelope struct {
+	Orders []orderRequest `json:"orders"`
+}
+
+type orderRequest struct {
+	AccountID   string           `json:"acctId"`
+	ContractID  int64            `json:"conid"`
+	OrderType   string           `json:"orderType"`
+	Side        broker.OrderSide `json:"side"`
+	TimeInForce string           `json:"tif"`
+	Quantity    float64          `json:"quantity"`
+}
+
+type orderPreviewResponse struct {
+	Amount struct {
+		Amount     string `json:"amount"`
+		Commission string `json:"commission"`
+		Total      string `json:"total"`
+	} `json:"amount"`
+	Position struct {
+		Current string `json:"current"`
+		After   string `json:"after"`
+	} `json:"position"`
+	Warning string `json:"warn"`
+	Error   string `json:"error"`
+}
+
+type orderResponseItem struct {
+	OrderID json.RawMessage `json:"order_id"`
+	Status  string          `json:"order_status"`
+	ReplyID string          `json:"id"`
+	Message []string        `json:"message"`
+	Error   string          `json:"error"`
 }
 
 // IBKR returns numbers as JSON numbers, strings, empty string, or null.
@@ -639,6 +675,128 @@ func (c *Client) FetchStockHistory(ctx context.Context, contractID int64, timeRa
 		Range: timeRange, Points: points, MarketDataStatus: response.Availability,
 		DelaySeconds: response.DelaySeconds, UnavailableReason: reason,
 	}, nil
+}
+
+// PreviewOrder submits a non-transmitting IBKR what-if request for one market order.
+func (c *Client) PreviewOrder(ctx context.Context, accountID string, order broker.MarketOrder) (broker.OrderPreview, error) {
+	if err := c.primeOrderMarketData(ctx, order.ContractID); err != nil {
+		return broker.OrderPreview{}, err
+	}
+	var response orderPreviewResponse
+	path := fmt.Sprintf("/iserver/account/%s/orders/whatif", url.PathEscape(accountID))
+	if err := c.postJSONBody(ctx, path, newOrderEnvelope(accountID, order), &response); err != nil {
+		return broker.OrderPreview{}, err
+	}
+	if strings.TrimSpace(response.Error) != "" {
+		return broker.OrderPreview{}, errors.New(strings.TrimSpace(response.Error))
+	}
+	orderAmount := parseOrderMoney(response.Amount.Amount)
+	commission := parseOrderMoney(response.Amount.Commission)
+	total := parseOrderMoney(response.Amount.Total)
+	currentPosition, _ := parseFormattedNumber(response.Position.Current)
+	resultingPosition, afterAvailable := parseFormattedNumber(response.Position.After)
+	if !afterAvailable {
+		resultingPosition = currentPosition
+		if order.Side == broker.OrderSideBuy {
+			resultingPosition += order.Quantity
+		} else {
+			resultingPosition -= order.Quantity
+		}
+	}
+	warnings := []string{}
+	if warning := strings.TrimSpace(response.Warning); warning != "" {
+		warnings = append(warnings, warning)
+	}
+	return broker.OrderPreview{
+		OrderAmount: orderAmount, Commission: commission, Total: total,
+		CurrentPosition: currentPosition, ResultingPosition: resultingPosition, Warnings: warnings,
+	}, nil
+}
+
+// SubmitOrder transmits one previously confirmed market order to IBKR.
+func (c *Client) SubmitOrder(ctx context.Context, accountID string, order broker.MarketOrder) (broker.OrderResult, error) {
+	path := fmt.Sprintf("/iserver/account/%s/orders", url.PathEscape(accountID))
+	return c.sendOrderRequest(ctx, path, newOrderEnvelope(accountID, order))
+}
+
+// ReplyToOrder answers an IBKR warning that interrupted an order submission.
+func (c *Client) ReplyToOrder(ctx context.Context, replyID string, confirmed bool) (broker.OrderResult, error) {
+	path := "/iserver/reply/" + url.PathEscape(replyID)
+	return c.sendOrderRequest(ctx, path, struct {
+		Confirmed bool `json:"confirmed"`
+	}{Confirmed: confirmed})
+}
+
+func (c *Client) primeOrderMarketData(ctx context.Context, contractID int64) error {
+	path := fmt.Sprintf("/iserver/marketdata/snapshot?conids=%d&fields=84%%2C86", contractID)
+	var response []map[string]json.RawMessage
+	if err := c.getJSON(ctx, path, &response); err != nil {
+		return fmt.Errorf("prime market data before order preview: %w", err)
+	}
+	return nil
+}
+
+func newOrderEnvelope(accountID string, order broker.MarketOrder) orderRequestEnvelope {
+	return orderRequestEnvelope{Orders: []orderRequest{{
+		AccountID: accountID, ContractID: order.ContractID, OrderType: "MKT",
+		Side: order.Side, TimeInForce: "DAY", Quantity: order.Quantity,
+	}}}
+}
+
+// sendOrderRequest decodes IBKR's acknowledgement, warning, and rejection response variants.
+func (c *Client) sendOrderRequest(ctx context.Context, path string, body any) (broker.OrderResult, error) {
+	var raw json.RawMessage
+	if err := c.postJSONBody(ctx, path, body, &raw); err != nil {
+		return broker.OrderResult{}, err
+	}
+	var items []orderResponseItem
+	if err := json.Unmarshal(raw, &items); err != nil {
+		var item orderResponseItem
+		if objectErr := json.Unmarshal(raw, &item); objectErr != nil {
+			return broker.OrderResult{}, fmt.Errorf("decode IBKR order response: %w", err)
+		}
+		items = []orderResponseItem{item}
+	}
+	if len(items) == 0 {
+		return broker.OrderResult{}, errors.New("IBKR returned an empty order response")
+	}
+	item := items[0]
+	return broker.OrderResult{
+		OrderID: rawScalarString(item.OrderID), Status: item.Status,
+		ReplyID: item.ReplyID, Messages: item.Message, BrokerError: strings.TrimSpace(item.Error),
+	}, nil
+}
+
+func parseOrderMoney(value string) portfolio.Money {
+	trimmed := strings.TrimSpace(value)
+	if index := strings.Index(trimmed, " ("); index >= 0 {
+		trimmed = trimmed[:index]
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) < 2 {
+		return portfolio.Money{}
+	}
+	amount, ok := parseFormattedNumber(fields[0])
+	if !ok {
+		return portfolio.Money{}
+	}
+	return portfolio.Money{Amount: math.Abs(amount), Currency: fields[len(fields)-1], Available: true}
+}
+
+func parseFormattedNumber(value string) (float64, bool) {
+	parsed, err := strconv.ParseFloat(strings.ReplaceAll(strings.TrimSpace(value), ",", ""), 64)
+	return parsed, err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
+}
+
+func rawScalarString(value json.RawMessage) string {
+	if len(value) == 0 || string(value) == "null" {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(value, &text) == nil {
+		return text
+	}
+	return strings.Trim(string(value), `"`)
 }
 
 func stockHistoryRanges() map[string]stockHistoryRequest {

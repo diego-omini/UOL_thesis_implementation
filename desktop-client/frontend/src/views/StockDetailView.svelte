@@ -3,6 +3,7 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte'
   import { GetStockHistory, GetStockNews, GetStockSnapshot } from '../../wailsjs/go/main/App.js'
   import CounselorResponse from '../components/CounselorResponse.svelte'
+  import TradingPanel from '../components/TradingPanel.svelte'
   import { formatCurrencyAmount, formatDate, formatError, formatMoney, formatNumber, formatOptionalCurrency, formatOptionalNumber, formatPercent } from '../lib/format'
   import {
     averageCostForChart,
@@ -26,7 +27,7 @@
   export let stock: InstrumentSearchResultView
   export let position: PositionView | null
 
-  const dispatch = createEventDispatcher<{ back: void; sessionIssue: void }>()
+  const dispatch = createEventDispatcher<{ back: void; sessionIssue: void; tradeComplete: void }>()
 
   let snapshot: StockSnapshotView | null = null
   let snapshotLoading = false
@@ -163,6 +164,8 @@
     </div>
   </div>
 
+  <TradingPanel {stock} {position} on:completed={() => dispatch('tradeComplete')} />
+
   {#if stockNewsLoading}
     <div class="ai-status" role="status" aria-live="polite">Researching the latest reliable news for this company...</div>
   {:else if stockNewsError}
@@ -266,7 +269,7 @@
       </div>
     </section>
   {:else}
-    <section class="stock-not-held">This stock is not part of the current portfolio. Market data and trading controls will be added in their dedicated milestones.</section>
+    <section class="stock-not-held">This stock is not part of the current portfolio.</section>
   {/if}
 </section>
 

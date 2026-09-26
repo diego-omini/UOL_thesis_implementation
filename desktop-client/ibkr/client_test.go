@@ -232,6 +232,73 @@ func TestFetchStockHistoryMapsRangeAndBars(t *testing.T) {
 	}
 }
 
+func TestPreviewOrderMapsWhatIfEstimate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/iserver/marketdata/snapshot":
+			_, _ = w.Write([]byte(`[{"84":"99.90","86":"100.10"}]`))
+		case "/iserver/account/DU123/orders/whatif":
+			var request orderRequestEnvelope
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode order request: %v", err)
+			}
+			if len(request.Orders) != 1 || request.Orders[0].OrderType != "MKT" || request.Orders[0].Side != broker.OrderSideBuy || request.Orders[0].Quantity != 2 {
+				t.Fatalf("unexpected order request: %#v", request)
+			}
+			_, _ = w.Write([]byte(`{
+				"amount":{"amount":"200.20 USD (2 Shares)","commission":"1 USD","total":"201.20 USD"},
+				"position":{"current":"5","after":"7"},"warn":"Market order warning","error":null
+			}`))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	preview, err := NewClient(server.URL, false).PreviewOrder(context.Background(), "DU123", broker.MarketOrder{ContractID: 42, Side: broker.OrderSideBuy, Quantity: 2})
+	if err != nil {
+		t.Fatalf("PreviewOrder() error: %v", err)
+	}
+	if preview.Total.Amount != 201.2 || preview.Total.Currency != "USD" || preview.ResultingPosition != 7 || len(preview.Warnings) != 1 {
+		t.Fatalf("unexpected preview: %#v", preview)
+	}
+}
+
+func TestSubmitOrderDecodesAcknowledgementWarningAndRejection(t *testing.T) {
+	responses := []string{
+		`[{"order_id":12345,"order_status":"Submitted"}]`,
+		`[{"id":"reply-1","message":["Confirm warning"]}]`,
+		`{"error":"Insufficient funds"}`,
+	}
+	call := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/iserver/account/DU123/orders" {
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(responses[call]))
+		call++
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, false)
+	order := broker.MarketOrder{ContractID: 42, Side: broker.OrderSideSell, Quantity: 1}
+	ack, err := client.SubmitOrder(context.Background(), "DU123", order)
+	if err != nil || ack.OrderID != "12345" || ack.Status != "Submitted" {
+		t.Fatalf("acknowledgement = %#v, %v", ack, err)
+	}
+	warning, err := client.SubmitOrder(context.Background(), "DU123", order)
+	if err != nil || warning.ReplyID != "reply-1" || len(warning.Messages) != 1 {
+		t.Fatalf("warning = %#v, %v", warning, err)
+	}
+	rejection, err := client.SubmitOrder(context.Background(), "DU123", order)
+	if err != nil || rejection.BrokerError != "Insufficient funds" {
+		t.Fatalf("rejection = %#v, %v", rejection, err)
+	}
+}
+
 func TestCheckSessionAcceptsOnlyPaperTrading(t *testing.T) {
 	tests := []struct {
 		name          string

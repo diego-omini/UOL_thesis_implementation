@@ -69,6 +69,20 @@ func TestEmbeddedCatalogResolvesStockNewsPrompt(t *testing.T) {
 	}
 }
 
+func TestEmbeddedCatalogResolvesOrderAnalysisPrompt(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	definition, err := catalog.resolve(OrderAnalysisPromptAlias)
+	if err != nil {
+		t.Fatalf("resolve returned an error: %v", err)
+	}
+	if definition.ID != OrderAnalysisPromptAlias || definition.Version != 1 || definition.Response.MaxCharacters != 6000 {
+		t.Fatalf("unexpected prompt definition: %+v", definition)
+	}
+}
+
 func TestExecutorRejectsMissingAndUnexpectedParameters(t *testing.T) {
 	executor := testExecutor(&recordingProvider{}, 100)
 

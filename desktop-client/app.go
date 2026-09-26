@@ -16,6 +16,8 @@ import (
 	"wails/gateway"
 	"wails/ibkr"
 	"wails/portfolio"
+	"wails/stockanalysis"
+	"wails/trading"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -31,6 +33,7 @@ type App struct {
 	gateway          *gateway.Controller
 	aiCounselor      *ai.Counselor
 	aiProviderName   string
+	trading          *trading.Service
 }
 
 // NewApp creates the Wails application object.
@@ -73,6 +76,7 @@ func NewApp() (*App, error) {
 		gateway:          gateway.NewController(cfg.IBKR.GatewayDirectory),
 		aiCounselor:      ai.NewCounselor(promptExecutor, researchTools),
 		aiProviderName:   cfg.AI.Provider,
+		trading:          trading.NewService(client, client, client),
 	}, nil
 }
 
@@ -197,6 +201,7 @@ func (a *App) KeepSessionAlive() SessionStatusView {
 
 // Logout ends the IBKR session and returns the authentication-required state.
 func (a *App) Logout() (SessionStatusView, error) {
+	a.trading.Reset()
 	if err := a.sessionBroker.Logout(a.context()); err != nil {
 		return toSessionStatusView(a.checkSession()), err
 	}
@@ -228,7 +233,7 @@ func (a *App) SearchStocks(query string) ([]InstrumentSearchResultView, error) {
 		return nil, fmt.Errorf("stock search query is too long")
 	}
 
-	status := a.sessionBroker.CheckSession(a.context())
+	status := a.checkSession()
 	if !status.Ready() {
 		return nil, fmt.Errorf("stock search requires an authenticated IBKR paper session: %s", status.Message)
 	}
@@ -244,7 +249,7 @@ func (a *App) GetStockSnapshot(contractID int64) (StockSnapshotView, error) {
 	if contractID <= 0 {
 		return StockSnapshotView{}, fmt.Errorf("a valid stock contract ID is required")
 	}
-	status := a.sessionBroker.CheckSession(a.context())
+	status := a.checkSession()
 	if !status.Ready() {
 		return StockSnapshotView{}, fmt.Errorf("stock data requires an authenticated IBKR paper session: %s", status.Message)
 	}
@@ -260,7 +265,7 @@ func (a *App) GetStockHistory(contractID int64, timeRange string) (StockHistoryV
 	if contractID <= 0 {
 		return StockHistoryView{}, fmt.Errorf("a valid stock contract ID is required")
 	}
-	status := a.sessionBroker.CheckSession(a.context())
+	status := a.checkSession()
 	if !status.Ready() {
 		return StockHistoryView{}, fmt.Errorf("stock history requires an authenticated IBKR paper session: %s", status.Message)
 	}
@@ -269,6 +274,82 @@ func (a *App) GetStockHistory(contractID int64, timeRange string) (StockHistoryV
 		return StockHistoryView{}, err
 	}
 	return toStockHistoryView(history), nil
+}
+
+// GetOrderAnalysis produces read-only analysis for one proposed stock order.
+func (a *App) GetOrderAnalysis(contractID int64, side string, quantity float64) (AIResponseView, error) {
+	if contractID <= 0 {
+		return AIResponseView{}, fmt.Errorf("a valid stock contract ID is required")
+	}
+	status := a.checkSession()
+	if !status.Ready() {
+		return AIResponseView{}, fmt.Errorf("order analysis requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	snapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("load stock data for order analysis: %w", err)
+	}
+	history, err := a.stockData.FetchStockHistory(a.context(), contractID, "1y")
+	if err != nil {
+		history = portfolio.StockHistory{
+			Range: "1y", UnavailableReason: fmt.Sprintf("IBKR price history was unavailable: %v", err),
+		}
+	}
+	portfolioSnapshot, err := a.portfolioBroker.FetchPortfolio(a.context())
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("load portfolio for order analysis: %w", err)
+	}
+	analysis, err := stockanalysis.Calculate(snapshot, history, portfolioSnapshot, side, quantity, time.Now())
+	if err != nil {
+		return AIResponseView{}, err
+	}
+	response, err := a.aiCounselor.OrderAnalysis(a.context(), analysis)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("order analysis failed: %w", err)
+	}
+	return AIResponseView{
+		Text: response.Text, Provider: a.aiProviderName, Model: response.Model,
+		PromptID: response.PromptID, PromptVersion: response.PromptVersion,
+	}, nil
+}
+
+// PreviewOrder validates a manual stock order and returns a short-lived confirmation preview.
+func (a *App) PreviewOrder(contractID int64, side string, quantity float64) (OrderPreviewView, error) {
+	status := a.checkSession()
+	if !status.Ready() {
+		return OrderPreviewView{}, fmt.Errorf("order preview requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	preview, err := a.trading.PreviewOrder(a.context(), contractID, side, quantity)
+	if err != nil {
+		return OrderPreviewView{}, err
+	}
+	return toOrderPreviewView(preview), nil
+}
+
+// ConfirmOrder submits the exact market order represented by a valid preview token.
+func (a *App) ConfirmOrder(previewToken string) (OrderResultView, error) {
+	status := a.checkSession()
+	if !status.Ready() {
+		return OrderResultView{}, fmt.Errorf("order submission requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	result, err := a.trading.ConfirmOrder(a.context(), strings.TrimSpace(previewToken))
+	if err != nil {
+		return OrderResultView{}, err
+	}
+	return toOrderResultView(result), nil
+}
+
+// RespondToOrderWarning forwards the user's explicit decision for an IBKR submission warning.
+func (a *App) RespondToOrderWarning(warningToken string, confirmed bool) (OrderResultView, error) {
+	status := a.checkSession()
+	if !status.Ready() {
+		return OrderResultView{}, fmt.Errorf("order warning response requires an authenticated IBKR paper session: %s", status.Message)
+	}
+	result, err := a.trading.RespondToWarning(a.context(), strings.TrimSpace(warningToken), confirmed)
+	if err != nil {
+		return OrderResultView{}, err
+	}
+	return toOrderResultView(result), nil
 }
 
 // GetStockNews researches recent material news for one broker-verified stock identity.
@@ -360,7 +441,11 @@ func (a *App) context() context.Context {
 }
 
 func (a *App) checkSession() broker.SessionStatus {
-	return a.sessionBroker.CheckSession(a.context())
+	status := a.sessionBroker.CheckSession(a.context())
+	if !status.Ready() && a.trading != nil {
+		a.trading.Reset()
+	}
+	return status
 }
 
 func gatewayLoginURL(baseURL string) (string, error) {

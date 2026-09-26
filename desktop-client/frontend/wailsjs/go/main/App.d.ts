@@ -6,6 +6,10 @@ export function CheckConnection():Promise<main.ConnectionStatusView>;
 
 export function ChooseGatewayDirectory():Promise<main.SessionStatusView>;
 
+export function ConfirmOrder(arg1:string):Promise<main.OrderResultView>;
+
+export function GetOrderAnalysis(arg1:number,arg2:string,arg3:number):Promise<main.AIResponseView>;
+
 export function GetPortfolio():Promise<main.PortfolioView>;
 
 export function GetPortfolioNews():Promise<main.AIResponseView>;
@@ -27,6 +31,10 @@ export function KeepSessionAlive():Promise<main.SessionStatusView>;
 export function Logout():Promise<main.SessionStatusView>;
 
 export function OpenIBKRLogin():Promise<void>;
+
+export function PreviewOrder(arg1:number,arg2:string,arg3:number):Promise<main.OrderPreviewView>;
+
+export function RespondToOrderWarning(arg1:string,arg2:boolean):Promise<main.OrderResultView>;
 
 export function SearchStocks(arg1:string):Promise<Array<main.InstrumentSearchResultView>>;
 

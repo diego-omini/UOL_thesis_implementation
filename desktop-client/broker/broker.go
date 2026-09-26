@@ -1,7 +1,7 @@
 // Package broker defines application-owned boundaries for external brokerage integrations.
 package broker
 
-// This file defines the read-only connection and portfolio contract implemented by broker adapters.
+// This file defines the connection, portfolio, market-data, and manual-order contracts implemented by broker adapters.
 
 import (
 	"context"
@@ -60,6 +60,47 @@ type InstrumentSearchProvider interface {
 type StockDataProvider interface {
 	FetchStockSnapshot(ctx context.Context, contractID int64) (portfolio.StockSnapshot, error)
 	FetchStockHistory(ctx context.Context, contractID int64, timeRange string) (portfolio.StockHistory, error)
+}
+
+// OrderSide identifies the direction of a manual stock order.
+type OrderSide string
+
+const (
+	OrderSideBuy  OrderSide = "BUY"
+	OrderSideSell OrderSide = "SELL"
+)
+
+// MarketOrder is the normalized order shape supported by the application.
+type MarketOrder struct {
+	ContractID int64
+	Side       OrderSide
+	Quantity   float64
+}
+
+// OrderPreview contains the broker's estimated cost and position impact.
+type OrderPreview struct {
+	OrderAmount       portfolio.Money
+	Commission        portfolio.Money
+	Total             portfolio.Money
+	CurrentPosition   float64
+	ResultingPosition float64
+	Warnings          []string
+}
+
+// OrderResult represents either an acknowledged order or a broker warning awaiting a reply.
+type OrderResult struct {
+	OrderID     string
+	Status      string
+	ReplyID     string
+	Messages    []string
+	BrokerError string
+}
+
+// TradingProvider exposes stock-order preview, submission, and broker-warning replies.
+type TradingProvider interface {
+	PreviewOrder(ctx context.Context, accountID string, order MarketOrder) (OrderPreview, error)
+	SubmitOrder(ctx context.Context, accountID string, order MarketOrder) (OrderResult, error)
+	ReplyToOrder(ctx context.Context, replyID string, confirmed bool) (OrderResult, error)
 }
 
 // SessionProvider exposes lifecycle operations without exposing broker credentials.

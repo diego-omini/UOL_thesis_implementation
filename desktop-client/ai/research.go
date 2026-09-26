@@ -77,6 +77,7 @@ var researchTopics = map[string]string{
 	"latest_news":         "latest news earnings report financial results guidance material events",
 	"recent_events":       "recent material company events",
 	"regulatory_filings":  "official regulatory filings",
+	"valuation":           "valuation trailing price earnings ratio market capitalization earnings per share financial results",
 }
 
 // NewResearchToolsFactory creates prompt-scoped tools with an enforced source policy.

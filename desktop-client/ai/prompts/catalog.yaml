@@ -8,3 +8,6 @@ aliases:
   stock_news:
     id: stock_news
     version: 1
+  order_analysis:
+    id: order_analysis
+    version: 1

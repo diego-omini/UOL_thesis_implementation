@@ -8,6 +8,7 @@ import (
 	"wails/analytics"
 	"wails/broker"
 	"wails/portfolio"
+	"wails/trading"
 )
 
 type ConnectionStatusView struct {
@@ -173,6 +174,29 @@ type AIResponseView struct {
 	PromptVersion int
 }
 
+type OrderPreviewView struct {
+	Token             string
+	ExpiresAt         string
+	Instrument        InstrumentView
+	Side              string
+	Quantity          float64
+	EstimatedPrice    MoneyView
+	OrderAmount       MoneyView
+	Commission        MoneyView
+	Total             MoneyView
+	CashBalance       MoneyView
+	CurrentPosition   float64
+	ResultingPosition float64
+	Warnings          []string
+}
+
+type OrderResultView struct {
+	OrderID         string
+	Status          string
+	WarningToken    string
+	WarningMessages []string
+}
+
 func toConnectionStatusView(status bool, message string) ConnectionStatusView {
 	return ConnectionStatusView{Connected: status, Message: message}
 }
@@ -265,6 +289,23 @@ func toStockHistoryView(history portfolio.StockHistory) StockHistoryView {
 	return StockHistoryView{
 		Range: history.Range, Points: points, MarketDataStatus: history.MarketDataStatus,
 		DelaySeconds: history.DelaySeconds, UnavailableReason: history.UnavailableReason,
+	}
+}
+
+func toOrderPreviewView(preview trading.Preview) OrderPreviewView {
+	return OrderPreviewView{
+		Token: preview.Token, ExpiresAt: preview.ExpiresAt.Format(time.RFC3339),
+		Instrument: InstrumentView(preview.Instrument), Side: string(preview.Side), Quantity: preview.Quantity,
+		EstimatedPrice: toMoneyView(preview.EstimatedPrice), OrderAmount: toMoneyView(preview.OrderAmount),
+		Commission: toMoneyView(preview.Commission), Total: toMoneyView(preview.Total), CashBalance: toMoneyView(preview.CashBalance),
+		CurrentPosition: preview.CurrentPosition, ResultingPosition: preview.ResultingPosition, Warnings: preview.Warnings,
+	}
+}
+
+func toOrderResultView(result trading.Result) OrderResultView {
+	return OrderResultView{
+		OrderID: result.OrderID, Status: result.Status,
+		WarningToken: result.WarningToken, WarningMessages: result.WarningMessages,
 	}
 }
 
