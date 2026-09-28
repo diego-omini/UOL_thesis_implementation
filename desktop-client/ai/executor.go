@@ -8,13 +8,22 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 // Executor renders prompt contracts and coordinates providers with application tools.
 type Executor struct {
-	catalog  *Catalog
-	provider Provider
+	catalog      *Catalog
+	provider     Provider
+	providerName string
+	recorder     ExecutionRecorder
+}
+
+// SetExecutionRecorder enables durable prompt audit records for subsequent executions.
+func (e *Executor) SetExecutionRecorder(providerName string, recorder ExecutionRecorder) {
+	e.providerName = strings.TrimSpace(providerName)
+	e.recorder = recorder
 }
 
 type completedChat struct {
@@ -33,7 +42,25 @@ func (e *Executor) Execute(ctx context.Context, alias string, parameters map[str
 	if err != nil {
 		return Response{}, err
 	}
-	return e.executeDefinition(ctx, definition, parameters, tools)
+	return e.executeDefinition(ctx, definition, parameters, tools, nil)
+}
+
+// ExecuteCounselor runs a structured counselor prompt against its authoritative fact set.
+func (e *Executor) ExecuteCounselor(
+	ctx context.Context,
+	alias string,
+	parameters map[string]any,
+	tools []Tool,
+	facts []CounselorFact,
+) (Response, error) {
+	definition, err := e.catalog.resolve(alias)
+	if err != nil {
+		return Response{}, err
+	}
+	if definition.Response.Schema != CounselorResponseSchema {
+		return Response{}, fmt.Errorf("prompt %s v%d does not declare the counselor response schema", definition.ID, definition.Version)
+	}
+	return e.executeDefinition(ctx, definition, parameters, tools, facts)
 }
 
 // ExecuteVersion runs a retained prompt version directly for reproducible evaluation.
@@ -48,7 +75,7 @@ func (e *Executor) ExecuteVersion(
 	if err != nil {
 		return Response{}, err
 	}
-	return e.executeDefinition(ctx, definition, parameters, tools)
+	return e.executeDefinition(ctx, definition, parameters, tools, nil)
 }
 
 func (e *Executor) executeDefinition(
@@ -56,7 +83,38 @@ func (e *Executor) executeDefinition(
 	definition PromptDefinition,
 	parameters map[string]any,
 	tools []Tool,
-) (Response, error) {
+	facts []CounselorFact,
+) (result Response, executionErr error) {
+	startedAt := time.Now().UTC()
+	var renderedSystemPrompt string
+	var renderedUserPrompt string
+	var transcript []Message
+	var model string
+	var modelSettings GenerationSettings
+	var rawResponse string
+	var repairResponse string
+	var parsedResponse *CounselorResponse
+	validationResult := CounselorValidationResult{}
+	repairStatus := "not_attempted"
+	defer func() {
+		if e.recorder == nil {
+			return
+		}
+		record := PromptExecution{
+			StartedAt: startedAt, CompletedAt: time.Now().UTC(), Provider: e.providerName,
+			Model: model, PromptID: definition.ID, PromptVersion: definition.Version,
+			Parameters: parameters, SystemPrompt: renderedSystemPrompt, UserPrompt: renderedUserPrompt,
+			Transcript: transcript, ModelSettings: modelSettings,
+			RawResponse: rawResponse, RepairResponse: repairResponse, ResponseText: result.Text,
+			ParsedResponse: parsedResponse, ValidationResult: validationResult, RepairStatus: repairStatus,
+		}
+		if executionErr != nil {
+			record.ErrorText = executionErr.Error()
+		}
+		if recordErr := e.recorder.RecordPromptExecution(context.WithoutCancel(ctx), record); recordErr != nil && executionErr == nil {
+			executionErr = fmt.Errorf("persist prompt execution: %w", recordErr)
+		}
+	}()
 	if err := validateParameters(definition.Parameters, parameters); err != nil {
 		return Response{}, fmt.Errorf("prompt %s v%d parameters: %w", definition.ID, definition.Version, err)
 	}
@@ -69,6 +127,8 @@ func (e *Executor) executeDefinition(
 		return Response{}, err
 	}
 	systemPrompt += fmt.Sprintf("\n\nYour complete response must not exceed %d characters.", definition.Response.MaxCharacters)
+	renderedSystemPrompt = systemPrompt
+	renderedUserPrompt = userPrompt
 
 	selectedTools, err := selectTools(definition.Tools, tools)
 	if err != nil {
@@ -82,24 +142,49 @@ func (e *Executor) executeDefinition(
 		Temperature: definition.Response.Temperature,
 		MaxTokens:   definition.Response.MaxTokens,
 	}
+	modelSettings = settings
+	var responseSchema map[string]any
+	if definition.Response.Schema == CounselorResponseSchema {
+		responseSchema = counselorJSONSchema()
+	}
 
-	completed, err := e.runToolLoop(ctx, messages, selectedTools, definition.ToolSettings, settings)
+	transcript = append([]Message(nil), messages...)
+	completed, err := e.runToolLoop(ctx, messages, selectedTools, definition.ToolSettings, settings, responseSchema)
 	if err != nil {
 		return Response{}, err
 	}
-	text := strings.TrimSpace(completed.response.Message.Content)
-	if validationErr := validateFinalResponse(text, definition.Response); validationErr != nil {
-		text, err = e.repair(ctx, completed.messages, definition.Response, validationErr)
+	transcript = append([]Message(nil), completed.messages...)
+	model = completed.response.Model
+	rawResponse = strings.TrimSpace(completed.response.Message.Content)
+	text := rawResponse
+	parsed, validationErrors := validateExecutionResponse(text, definition.Response, facts, selectedTools)
+	if len(validationErrors) > 0 {
+		validationResult.InitialErrors = append([]string(nil), validationErrors...)
+		repairStatus = "attempted"
+		text, err = e.repair(ctx, completed.messages, definition.Response, strings.Join(validationErrors, "; "), responseSchema)
 		if err != nil {
+			repairStatus = "failed"
 			return Response{}, err
 		}
+		repairResponse = text
+		parsed, validationErrors = validateExecutionResponse(text, definition.Response, facts, selectedTools)
+		if len(validationErrors) > 0 {
+			validationResult.FinalErrors = append([]string(nil), validationErrors...)
+			repairStatus = "failed"
+			return Response{}, fmt.Errorf("provider could not produce a valid final response after one repair attempt: %s", strings.Join(validationErrors, "; "))
+		}
+		repairStatus = "succeeded"
 	}
-	return Response{
+	validationResult.Valid = true
+	parsedResponse = parsed
+	result = Response{
 		Text:          text,
+		Structured:    parsed,
 		Model:         completed.response.Model,
 		PromptID:      definition.ID,
 		PromptVersion: definition.Version,
-	}, nil
+	}
+	return result, nil
 }
 
 func (e *Executor) runToolLoop(
@@ -108,6 +193,7 @@ func (e *Executor) runToolLoop(
 	tools map[string]Tool,
 	limits ToolSettings,
 	settings GenerationSettings,
+	responseSchema map[string]any,
 ) (completedChat, error) {
 	definitions := toolDefinitions(tools)
 	rounds := 0
@@ -115,9 +201,7 @@ func (e *Executor) runToolLoop(
 	forcedFinal := false
 	for {
 		response, err := e.provider.Chat(ctx, ChatRequest{
-			Messages: messages,
-			Tools:    definitions,
-			Settings: settings,
+			Messages: messages, Tools: definitions, ResponseSchema: responseSchema, Settings: settings,
 		})
 		if err != nil {
 			return completedChat{}, err
@@ -172,7 +256,8 @@ func (e *Executor) repair(
 	ctx context.Context,
 	messages []Message,
 	settings ResponseSettings,
-	validationErr error,
+	validationErr string,
+	responseSchema map[string]any,
 ) (string, error) {
 	sections := "none"
 	if len(settings.RequiredSections) > 0 {
@@ -189,7 +274,7 @@ func (e *Executor) repair(
 		),
 	})
 	response, err := e.provider.Chat(ctx, ChatRequest{
-		Messages: messages,
+		Messages: messages, ResponseSchema: responseSchema,
 		Settings: GenerationSettings{Temperature: 0, MaxTokens: settings.MaxTokens},
 	})
 	if err != nil {
@@ -199,10 +284,20 @@ func (e *Executor) repair(
 		return "", fmt.Errorf("provider returned a tool call while repairing the final response")
 	}
 	repaired := strings.TrimSpace(response.Message.Content)
-	if err := validateFinalResponse(repaired, settings); err != nil {
-		return "", fmt.Errorf("provider could not produce a valid final response after one repair attempt: %w", err)
-	}
 	return repaired, nil
+}
+
+func validateExecutionResponse(text string, settings ResponseSettings, facts []CounselorFact, tools map[string]Tool) (*CounselorResponse, []string) {
+	if settings.Schema == CounselorResponseSchema {
+		if utf8.RuneCountInString(text) > settings.MaxCharacters {
+			return nil, []string{fmt.Sprintf("response exceeds the %d-character limit", settings.MaxCharacters)}
+		}
+		return decodeAndValidateCounselorResponse(text, facts, tools)
+	}
+	if err := validateFinalResponse(text, settings); err != nil {
+		return nil, []string{err.Error()}
+	}
+	return nil, nil
 }
 
 func validateFinalResponse(text string, settings ResponseSettings) error {

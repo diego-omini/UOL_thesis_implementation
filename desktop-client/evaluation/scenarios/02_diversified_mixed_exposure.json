@@ -1,0 +1,29 @@
+{
+  "id": "diversified-mixed-exposure",
+  "version": 1,
+  "description": "Five-sector USD portfolio containing both long and short exposure and mixed unrealized results.",
+  "provenance": "controlled_sanitized_scenario",
+  "snapshot_at": "2026-06-30T16:00:00Z",
+  "portfolio": {
+    "AccountSummary": {
+      "NetLiquidation": {"Amount": 12000, "Currency": "USD", "Available": true},
+      "CashBalance": {"Amount": 4000, "Currency": "USD", "Available": true}
+    },
+    "Positions": [
+      {"Instrument": {"ContractID": 2001, "Symbol": "TECA", "Name": "Technology A", "AssetClass": "STK", "Exchange": "NYSE", "Currency": "USD", "Sector": "Technology", "Industry": "Software"}, "Quantity": 30, "MarketPrice": {"Amount": 100, "Currency": "USD", "Available": true}, "MarketValue": {"Amount": 3000, "Currency": "USD", "Available": true}, "UnrealizedPnL": {"Amount": 300, "Currency": "USD", "Available": true}},
+      {"Instrument": {"ContractID": 2002, "Symbol": "FINB", "Name": "Financial B", "AssetClass": "STK", "Exchange": "NYSE", "Currency": "USD", "Sector": "Financial", "Industry": "Insurance"}, "Quantity": 25, "MarketPrice": {"Amount": 100, "Currency": "USD", "Available": true}, "MarketValue": {"Amount": 2500, "Currency": "USD", "Available": true}, "UnrealizedPnL": {"Amount": -100, "Currency": "USD", "Available": true}},
+      {"Instrument": {"ContractID": 2003, "Symbol": "HLTC", "Name": "Healthcare C", "AssetClass": "STK", "Exchange": "NASDAQ", "Currency": "USD", "Sector": "Healthcare", "Industry": "Pharmaceuticals"}, "Quantity": 20, "MarketPrice": {"Amount": 100, "Currency": "USD", "Available": true}, "MarketValue": {"Amount": 2000, "Currency": "USD", "Available": true}, "UnrealizedPnL": {"Amount": 50, "Currency": "USD", "Available": true}},
+      {"Instrument": {"ContractID": 2004, "Symbol": "COND", "Name": "Consumer D", "AssetClass": "STK", "Exchange": "NYSE", "Currency": "USD", "Sector": "Consumer", "Industry": "Retail"}, "Quantity": 15, "MarketPrice": {"Amount": 100, "Currency": "USD", "Available": true}, "MarketValue": {"Amount": 1500, "Currency": "USD", "Available": true}, "UnrealizedPnL": {"Amount": -50, "Currency": "USD", "Available": true}},
+      {"Instrument": {"ContractID": 2005, "Symbol": "ENEE", "Name": "Energy E", "AssetClass": "STK", "Exchange": "NYSE", "Currency": "USD", "Sector": "Energy", "Industry": "Energy"}, "Quantity": -10, "MarketPrice": {"Amount": 100, "Currency": "USD", "Available": true}, "MarketValue": {"Amount": -1000, "Currency": "USD", "Available": true}, "UnrealizedPnL": {"Amount": 20, "Currency": "USD", "Available": true}}
+    ],
+    "ExchangeRates": []
+  },
+  "required_facts": [
+    {"metric_id": "portfolio.net_market_value", "value": 8000, "unit": "money", "currency": "USD", "tolerance": 0.01},
+    {"metric_id": "portfolio.gross_exposure", "value": 10000, "unit": "money", "currency": "USD", "tolerance": 0.01},
+    {"metric_id": "portfolio.total_unrealized_pnl", "value": 220, "unit": "money", "currency": "USD", "tolerance": 0.01},
+    {"metric_id": "portfolio.top_three_concentration", "value": 0.75, "unit": "ratio", "tolerance": 0.000001},
+    {"metric_id": "portfolio.hhi", "value": 0.225, "unit": "ratio", "tolerance": 0.000001}
+  ],
+  "required_limitations": []
+}

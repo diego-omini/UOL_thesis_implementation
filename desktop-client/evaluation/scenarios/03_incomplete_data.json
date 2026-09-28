@@ -1,0 +1,24 @@
+{
+  "id": "incomplete-data",
+  "version": 1,
+  "description": "Portfolio with one complete position and one position missing market value, unrealized result, and sector classification.",
+  "provenance": "controlled_sanitized_scenario",
+  "snapshot_at": "2026-06-30T16:00:00Z",
+  "portfolio": {
+    "AccountSummary": {
+      "NetLiquidation": {"Amount": 8000, "Currency": "USD", "Available": true},
+      "CashBalance": {"Amount": 3000, "Currency": "USD", "Available": true}
+    },
+    "Positions": [
+      {"Instrument": {"ContractID": 3001, "Symbol": "KNWN", "Name": "Known Position", "AssetClass": "STK", "Exchange": "NYSE", "Currency": "USD", "Sector": "Industrial", "Industry": "Machinery"}, "Quantity": 50, "MarketPrice": {"Amount": 100, "Currency": "USD", "Available": true}, "MarketValue": {"Amount": 5000, "Currency": "USD", "Available": true}, "UnrealizedPnL": {"Amount": 200, "Currency": "USD", "Available": true}},
+      {"Instrument": {"ContractID": 3002, "Symbol": "MISS", "Name": "Incomplete Position", "AssetClass": "STK", "Exchange": "NASDAQ", "Currency": "USD", "Industry": "Unknown"}, "Quantity": 10, "MarketPrice": {"Currency": "USD", "Available": false}, "MarketValue": {"Currency": "USD", "Available": false}, "UnrealizedPnL": {"Currency": "USD", "Available": false}}
+    ],
+    "ExchangeRates": []
+  },
+  "required_facts": [
+    {"metric_id": "warning.missing_market_value", "value": 1, "unit": "count", "tolerance": 0},
+    {"metric_id": "warning.missing_unrealized_pnl", "value": 1, "unit": "count", "tolerance": 0},
+    {"metric_id": "warning.missing_sector", "value": 1, "unit": "count", "tolerance": 0}
+  ],
+  "required_limitations": ["missing_market_value", "missing_unrealized_pnl", "missing_sector"]
+}

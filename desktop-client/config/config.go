@@ -212,11 +212,20 @@ func loadLocalSettings() (localSettings, error) {
 }
 
 func localSettingsPath() (string, error) {
+	directory, err := DataDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, settingsFilename), nil
+}
+
+// DataDirectory returns the application-owned directory for local settings and persistence.
+func DataDirectory() (string, error) {
 	directory, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("locate user configuration directory: %w", err)
 	}
-	return filepath.Join(directory, settingsDirectory, settingsFilename), nil
+	return filepath.Join(directory, settingsDirectory), nil
 }
 
 // validateBaseURL requires an absolute HTTP or HTTPS gateway URL.

@@ -12,6 +12,10 @@
     return DOMPurify.sanitize(rendered)
   }
 
+  function label(value: string): string {
+    return value.replaceAll('_', ' ')
+  }
+
   function openCitation(event: MouseEvent | KeyboardEvent): void {
     if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return
     const target = event.target
@@ -35,7 +39,71 @@
 
 <div class="ai-response" aria-live="polite">
   <div class="ai-response-content" on:click={openCitation} on:keydown={openCitation}>
-    {@html renderMarkdown(response.Text)}
+    {#if response.HasStructured}
+      <section class="summary">
+        <h2>Summary</h2>
+        <div>{@html renderMarkdown(response.Structured.Summary)}</div>
+      </section>
+
+      <section>
+        <h2>Observations</h2>
+        <div class="observations">
+          {#each response.Structured.Observations as observation}
+            <article class="observation">
+              <div class="observation-meta">
+                <span>{label(observation.Category)}</span>
+                <span>{label(observation.Severity)} relevance</span>
+                <span>{label(observation.Confidence)} confidence</span>
+              </div>
+              <h3>{observation.Statement}</h3>
+              <div>{@html renderMarkdown(observation.Explanation)}</div>
+
+              {#if observation.ReportedValues.length > 0}
+                <dl class="reported-values">
+                  {#each observation.ReportedValues as value}
+                    <div>
+                      <dt>{value.FactID}</dt>
+                      <dd>{value.Value} {value.Unit}</dd>
+                    </div>
+                  {/each}
+                </dl>
+              {/if}
+
+              {#if observation.SupportingFactIDs.length > 0}
+                <p class="support"><strong>Supporting facts:</strong> {observation.SupportingFactIDs.join(', ')}</p>
+              {/if}
+              {#if observation.Limitations.length > 0}
+                <ul class="observation-limitations">
+                  {#each observation.Limitations as limitation}<li>{limitation}</li>{/each}
+                </ul>
+              {/if}
+              {#if observation.Citations.length > 0}
+                <p class="citations">
+                  <strong>Sources:</strong>
+                  {#each observation.Citations as citation, index}
+                    <a href={citation.URL}>{citation.Title || citation.URL}</a>{index < observation.Citations.length - 1 ? ', ' : ''}
+                  {/each}
+                </p>
+              {/if}
+            </article>
+          {/each}
+        </div>
+      </section>
+
+      <section class="response-limitations">
+        <h2>Limitations</h2>
+        <ul>
+          {#each response.Structured.Limitations as limitation}
+            <li>
+              {limitation.Statement}
+              {#if limitation.FactIDs.length > 0}<small>{limitation.FactIDs.join(', ')}</small>{/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {:else}
+      {@html renderMarkdown(response.Text)}
+    {/if}
   </div>
   <small>{response.Provider} · {response.Model} · {response.PromptID} v{response.PromptVersion}</small>
 </div>
@@ -60,6 +128,64 @@
     color: #243444;
     font-size: 18px;
     line-height: 1.35;
+  }
+
+  .observations {
+    display: grid;
+    gap: 12px;
+  }
+
+  .observation {
+    padding: 12px 14px;
+    border: 1px solid #d8e0e8;
+    border-radius: 6px;
+    background: white;
+  }
+
+  .observation-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    color: #42576a;
+    font-size: 12px;
+    text-transform: capitalize;
+  }
+
+  .observation-meta span {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: #e8f0f4;
+  }
+
+  .reported-values {
+    display: grid;
+    gap: 4px;
+    margin: 10px 0;
+  }
+
+  .reported-values div {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) auto;
+    gap: 12px;
+  }
+
+  .reported-values dt,
+  .reported-values dd {
+    margin: 0;
+  }
+
+  .reported-values dt,
+  .support,
+  .response-limitations small {
+    color: #5d6a7a;
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .response-limitations small {
+    display: block;
+    margin-top: 2px;
   }
 
   .ai-response-content :global(h2:first-child),

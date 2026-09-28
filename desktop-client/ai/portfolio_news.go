@@ -28,23 +28,12 @@ func (c *Counselor) PortfolioNews(
 		return Response{}, fmt.Errorf("the portfolio has no open positions to research")
 	}
 
-	positions := make([]promptNewsPosition, 0, len(snapshot.Positions))
-	for _, position := range snapshot.Positions {
-		positions = append(positions, promptNewsPosition{
-			Symbol:     valueOrUnavailable(position.Instrument.Symbol),
-			Name:       valueOrUnavailable(position.Instrument.Name),
-			AssetClass: valueOrUnavailable(position.Instrument.AssetClass),
-		})
-	}
-
-	parameters := map[string]any{
-		"research_timestamp": researchTime.UTC().Format(time.RFC3339),
-		"positions":          positions,
-	}
+	facts := portfolioNewsFacts(snapshot, researchTime)
+	parameters := map[string]any{"facts": facts}
 
 	var tools []Tool
 	if c.researchFactory != nil {
 		tools = c.researchFactory.ForInstruments(toPublicInstruments(snapshot.Positions))
 	}
-	return c.executor.Execute(ctx, PortfolioNewsPromptAlias, parameters, tools)
+	return c.executor.ExecuteCounselor(ctx, PortfolioNewsPromptAlias, parameters, tools, facts)
 }

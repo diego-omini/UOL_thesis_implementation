@@ -3,12 +3,17 @@ package ai
 
 // This file defines provider-neutral chat messages, tool calls, and generation settings.
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // GenerationSettings controls provider-independent model generation behavior.
 type GenerationSettings struct {
-	Temperature float64
-	MaxTokens   int
+	Temperature float64 `yaml:"temperature" json:"temperature"`
+	MaxTokens   int     `yaml:"max_tokens" json:"max_tokens"`
+	Seed        int     `yaml:"seed" json:"seed"`
+	ContextSize int     `yaml:"context_size" json:"context_size"`
 }
 
 // Message is one provider-neutral conversation item.
@@ -34,9 +39,10 @@ type ToolDefinition struct {
 
 // ChatRequest contains a complete provider-independent model invocation.
 type ChatRequest struct {
-	Messages []Message
-	Tools    []ToolDefinition
-	Settings GenerationSettings
+	Messages       []Message
+	Tools          []ToolDefinition
+	ResponseSchema map[string]any
+	Settings       GenerationSettings
 }
 
 // ChatResponse contains the next model message and provider metadata.
@@ -48,9 +54,37 @@ type ChatResponse struct {
 // Response is the completed prompt result returned to application services.
 type Response struct {
 	Text          string
+	Structured    *CounselorResponse
 	Model         string
 	PromptID      string
 	PromptVersion int
+}
+
+// PromptExecution contains the sanitized prompt inputs and outcome retained for reproducibility.
+type PromptExecution struct {
+	StartedAt        time.Time
+	CompletedAt      time.Time
+	Provider         string
+	Model            string
+	PromptID         string
+	PromptVersion    int
+	Parameters       map[string]any
+	SystemPrompt     string
+	UserPrompt       string
+	Transcript       []Message
+	ModelSettings    GenerationSettings
+	RawResponse      string
+	RepairResponse   string
+	ResponseText     string
+	ParsedResponse   *CounselorResponse
+	ValidationResult CounselorValidationResult
+	RepairStatus     string
+	ErrorText        string
+}
+
+// ExecutionRecorder persists prompt executions without receiving model or application capabilities.
+type ExecutionRecorder interface {
+	RecordPromptExecution(ctx context.Context, execution PromptExecution) error
 }
 
 // Provider performs chat completion without receiving broker or trading capabilities.

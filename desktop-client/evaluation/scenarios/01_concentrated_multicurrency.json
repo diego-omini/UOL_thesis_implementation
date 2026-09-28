@@ -1,0 +1,59 @@
+{
+  "id": "concentrated-multicurrency",
+  "version": 1,
+  "description": "Concentrated long-only portfolio with CHF, EUR, and USD positions and mixed unrealized results.",
+  "provenance": "controlled_sanitized_scenario",
+  "snapshot_at": "2026-06-30T16:00:00Z",
+  "portfolio": {
+    "AccountSummary": {
+      "NetLiquidation": {"Amount": 13175, "Currency": "CHF", "Available": true},
+      "CashBalance": {"Amount": 2000, "Currency": "CHF", "Available": true}
+    },
+    "Positions": [
+      {
+        "Instrument": {"ContractID": 1001, "Symbol": "ALPA", "Name": "Alpine Systems", "AssetClass": "STK", "Exchange": "SIX", "Currency": "CHF", "Sector": "Technology", "Industry": "Software"},
+        "Quantity": 60,
+        "AverageCost": {"Amount": 90, "Currency": "CHF", "Available": true},
+        "MarketPrice": {"Amount": 100, "Currency": "CHF", "Available": true},
+        "MarketValue": {"Amount": 6000, "Currency": "CHF", "Available": true},
+        "UnrealizedPnL": {"Amount": 600, "Currency": "CHF", "Available": true}
+      },
+      {
+        "Instrument": {"ContractID": 1002, "Symbol": "EURB", "Name": "European Bank Group", "AssetClass": "STK", "Exchange": "IBIS", "Currency": "EUR", "Sector": "Financial", "Industry": "Banks"},
+        "Quantity": 50,
+        "AverageCost": {"Amount": 52, "Currency": "EUR", "Available": true},
+        "MarketPrice": {"Amount": 50, "Currency": "EUR", "Available": true},
+        "MarketValue": {"Amount": 2500, "Currency": "EUR", "Available": true},
+        "UnrealizedPnL": {"Amount": -100, "Currency": "EUR", "Available": true}
+      },
+      {
+        "Instrument": {"ContractID": 1003, "Symbol": "MEDC", "Name": "Medical Components", "AssetClass": "STK", "Exchange": "NASDAQ", "Currency": "USD", "Sector": "Healthcare", "Industry": "Medical Devices"},
+        "Quantity": 20,
+        "AverageCost": {"Amount": 97.5, "Currency": "USD", "Available": true},
+        "MarketPrice": {"Amount": 100, "Currency": "USD", "Available": true},
+        "MarketValue": {"Amount": 2000, "Currency": "USD", "Available": true},
+        "UnrealizedPnL": {"Amount": 50, "Currency": "USD", "Available": true}
+      },
+      {
+        "Instrument": {"ContractID": 1004, "Symbol": "BALF", "Name": "Balanced Market Fund", "AssetClass": "FUND", "Exchange": "SIX", "Currency": "CHF", "Sector": "Diversified", "Industry": "Fund"},
+        "Quantity": 10,
+        "AverageCost": {"Amount": 98, "Currency": "CHF", "Available": true},
+        "MarketPrice": {"Amount": 100, "Currency": "CHF", "Available": true},
+        "MarketValue": {"Amount": 1000, "Currency": "CHF", "Available": true},
+        "UnrealizedPnL": {"Amount": 20, "Currency": "CHF", "Available": true}
+      }
+    ],
+    "ExchangeRates": [
+      {"Currency": "EUR", "BaseCurrency": "CHF", "BaseAmountPerUnit": 0.95, "Available": true, "Source": "frozen scenario", "AsOf": "2026-06-30T16:00:00Z"},
+      {"Currency": "USD", "BaseCurrency": "CHF", "BaseAmountPerUnit": 0.9, "Available": true, "Source": "frozen scenario", "AsOf": "2026-06-30T16:00:00Z"}
+    ]
+  },
+  "required_facts": [
+    {"metric_id": "portfolio.gross_exposure", "value": 11175, "unit": "money", "currency": "CHF", "tolerance": 0.01},
+    {"metric_id": "portfolio.total_unrealized_pnl", "value": 570, "unit": "money", "currency": "CHF", "tolerance": 0.01},
+    {"metric_id": "portfolio.top_three_concentration", "value": 0.910514541387025, "unit": "ratio", "tolerance": 0.000001},
+    {"metric_id": "portfolio.hhi", "value": 0.367395863049212, "unit": "ratio", "tolerance": 0.000001},
+    {"metric_id": "allocation.sector.technology", "value": 0.536912751677852, "unit": "ratio", "tolerance": 0.000001}
+  ],
+  "required_limitations": []
+}

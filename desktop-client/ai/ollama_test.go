@@ -20,10 +20,10 @@ func TestOllamaProviderChat(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if payload.Model != "test-model" || payload.Stream || len(payload.Messages) != 2 || len(payload.Tools) != 1 {
+		if payload.Model != "test-model" || payload.Stream || len(payload.Messages) != 2 || len(payload.Tools) != 1 || payload.Format["type"] != "object" {
 			t.Fatalf("unexpected request: %+v", payload)
 		}
-		if payload.Options.Temperature != 0.2 || payload.Options.MaxTokens != 400 {
+		if payload.Options.Temperature != 0.2 || payload.Options.MaxTokens != 400 || payload.Options.Seed != 42 || payload.Options.ContextSize != 8192 {
 			t.Fatalf("unexpected generation options: %+v", payload.Options)
 		}
 		writer.Header().Set("Content-Type", "application/json")
@@ -37,7 +37,8 @@ func TestOllamaProviderChat(t *testing.T) {
 		Tools: []ToolDefinition{{
 			Name: "test_tool", Description: "Test.", Parameters: map[string]any{"type": "object"},
 		}},
-		Settings: GenerationSettings{Temperature: 0.2, MaxTokens: 400},
+		ResponseSchema: map[string]any{"type": "object"},
+		Settings:       GenerationSettings{Temperature: 0.2, MaxTokens: 400, Seed: 42, ContextSize: 8192},
 	})
 	if err != nil {
 		t.Fatalf("Chat returned an error: %v", err)

@@ -1,0 +1,11 @@
+suite_id: portfolio-prompt-comparison
+version: 1
+model: llama3.2
+expected_model_digest: ""
+repetitions: 5
+order_strategy: alternating
+settings:
+  temperature: 0
+  max_tokens: 1800
+  seed: 42
+  context_size: 8192

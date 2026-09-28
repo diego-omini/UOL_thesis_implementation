@@ -48,21 +48,13 @@ func (c *Counselor) OrderAnalysis(ctx context.Context, result stockanalysis.Resu
 	if publicInstrument.Name == "" && publicInstrument.Ticker == "" {
 		return Response{}, fmt.Errorf("the stock has no public name or ticker to research")
 	}
-	parameters := map[string]any{
-		"analysis_timestamp": result.CalculatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
-		"symbol":             valueOrUnavailable(result.Instrument.Symbol),
-		"name":               valueOrUnavailable(result.Instrument.Name),
-		"exchange":           valueOrUnavailable(result.Instrument.Exchange),
-		"currency":           valueOrUnavailable(result.Instrument.Currency),
-		"order":              toPromptOrderContext(result),
-		"market_metrics":     toPromptMarketMetrics(result),
-		"data_warnings":      result.Warnings,
-	}
+	facts := orderAnalysisFacts(result)
+	parameters := map[string]any{"facts": facts}
 	var tools []Tool
 	if c.researchFactory != nil {
 		tools = c.researchFactory.ForInstruments([]PublicInstrument{publicInstrument})
 	}
-	return c.executor.Execute(ctx, OrderAnalysisPromptAlias, parameters, tools)
+	return c.executor.ExecuteCounselor(ctx, OrderAnalysisPromptAlias, parameters, tools, facts)
 }
 
 func toPromptOrderContext(result stockanalysis.Result) promptOrderContext {

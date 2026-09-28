@@ -4,9 +4,20 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
+
+type promptExecutionRecorder struct {
+	records []PromptExecution
+	err     error
+}
+
+func (r *promptExecutionRecorder) RecordPromptExecution(_ context.Context, execution PromptExecution) error {
+	r.records = append(r.records, execution)
+	return r.err
+}
 
 type testTool struct {
 	arguments map[string]any
@@ -30,13 +41,16 @@ func TestEmbeddedCatalogResolvesActivePortfolioPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != PortfolioResumePromptAlias || definition.Version != 2 || definition.Response.MaxCharacters != 4000 {
+	if definition.ID != PortfolioResumePromptAlias || definition.Version != 3 || definition.Response.Schema != CounselorResponseSchema {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
 	if _, err := catalog.version(PortfolioResumePromptAlias, 1); err != nil {
 		t.Fatalf("retained prompt version is unavailable: %v", err)
 	}
 	if _, err := catalog.version(PortfolioResumePromptAlias, 2); err != nil {
+		t.Fatalf("active prompt version is unavailable: %v", err)
+	}
+	if _, err := catalog.version(PortfolioResumePromptAlias, 3); err != nil {
 		t.Fatalf("active prompt version is unavailable: %v", err)
 	}
 }
@@ -50,7 +64,7 @@ func TestEmbeddedCatalogResolvesPortfolioNewsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != PortfolioNewsPromptAlias || definition.Version != 1 || definition.Response.MaxCharacters != 12000 {
+	if definition.ID != PortfolioNewsPromptAlias || definition.Version != 2 || definition.Response.Schema != CounselorResponseSchema {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
 }
@@ -64,7 +78,7 @@ func TestEmbeddedCatalogResolvesStockNewsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != StockNewsPromptAlias || definition.Version != 1 || definition.Response.MaxCharacters != 6500 {
+	if definition.ID != StockNewsPromptAlias || definition.Version != 2 || definition.Response.Schema != CounselorResponseSchema {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
 }
@@ -78,7 +92,7 @@ func TestEmbeddedCatalogResolvesOrderAnalysisPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != OrderAnalysisPromptAlias || definition.Version != 1 || definition.Response.MaxCharacters != 6000 {
+	if definition.ID != OrderAnalysisPromptAlias || definition.Version != 2 || definition.Response.Schema != CounselorResponseSchema {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
 }
@@ -155,6 +169,28 @@ func TestExecutorRunsRetainedVersionDirectly(t *testing.T) {
 	}
 	if response.PromptVersion != 2 {
 		t.Fatalf("unexpected prompt version: %+v", response)
+	}
+}
+
+func TestExecutorRecordsPromptExecution(t *testing.T) {
+	executor := testExecutor(&recordingProvider{}, 100)
+	recorder := &promptExecutionRecorder{}
+	executor.SetExecutionRecorder("ollama", recorder)
+	response, err := executor.Execute(context.Background(), "active_test", map[string]any{"name": "portfolio"}, nil)
+	if err != nil {
+		t.Fatalf("Execute returned an error: %v", err)
+	}
+	if len(recorder.records) != 1 {
+		t.Fatalf("recorded executions = %d, want 1", len(recorder.records))
+	}
+	record := recorder.records[0]
+	if record.Provider != "ollama" || record.PromptID != "test" || record.PromptVersion != 2 || record.Model != response.Model || record.ResponseText != response.Text || record.ErrorText != "" {
+		t.Fatalf("unexpected execution record: %+v", record)
+	}
+
+	recorder.err = errors.New("database unavailable")
+	if _, err := executor.Execute(context.Background(), "active_test", map[string]any{"name": "portfolio"}, nil); err == nil || !strings.Contains(err.Error(), "persist prompt execution") {
+		t.Fatalf("expected persistence error, got %v", err)
 	}
 }
 

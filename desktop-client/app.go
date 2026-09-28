@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"wails/config"
 	"wails/gateway"
 	"wails/ibkr"
+	"wails/persistence"
 	"wails/portfolio"
 	"wails/stockanalysis"
 	"wails/trading"
@@ -34,6 +36,7 @@ type App struct {
 	aiCounselor      *ai.Counselor
 	aiProviderName   string
 	trading          *trading.Service
+	store            *persistence.Store
 }
 
 // NewApp creates the Wails application object.
@@ -67,6 +70,20 @@ func NewApp() (*App, error) {
 		cfg.AI.SearchMaxResults,
 	)
 
+	tradingService := trading.NewService(client, client, client)
+	var store *persistence.Store
+	if !generatingBindings {
+		dataDirectory, err := config.DataDirectory()
+		if err != nil {
+			return nil, fmt.Errorf("locate application data directory: %w", err)
+		}
+		store, err = persistence.Open(filepath.Join(dataDirectory, "portfolio-tracker.db"))
+		if err != nil {
+			return nil, fmt.Errorf("initialize application persistence: %w", err)
+		}
+		promptExecutor.SetExecutionRecorder(cfg.AI.Provider, store)
+		tradingService.SetAuditRecorder(store)
+	}
 	return &App{
 		cfg:              cfg,
 		portfolioBroker:  client,
@@ -76,8 +93,16 @@ func NewApp() (*App, error) {
 		gateway:          gateway.NewController(cfg.IBKR.GatewayDirectory),
 		aiCounselor:      ai.NewCounselor(promptExecutor, researchTools),
 		aiProviderName:   cfg.AI.Provider,
-		trading:          trading.NewService(client, client, client),
+		trading:          tradingService,
+		store:            store,
 	}, nil
+}
+
+// shutdown closes local persistence after Wails stops dispatching application calls.
+func (a *App) shutdown(_ context.Context) {
+	if a.store != nil {
+		_ = a.store.Close()
+	}
 }
 
 // startup stores the Wails runtime context when the application starts.
@@ -214,12 +239,10 @@ func (a *App) Logout() (SessionStatusView, error) {
 
 // GetPortfolio fetches the current broker portfolio and returns its deterministic analytics.
 func (a *App) GetPortfolio() (PortfolioView, error) {
-	portfolioSnapshot, err := a.fetchPortfolio()
+	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio()
 	if err != nil {
 		return PortfolioView{}, err
 	}
-
-	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
 	return toPortfolioView(portfolioSnapshot, portfolioAnalytics), nil
 }
 
@@ -295,7 +318,7 @@ func (a *App) GetOrderAnalysis(contractID int64, side string, quantity float64) 
 			Range: "1y", UnavailableReason: fmt.Sprintf("IBKR price history was unavailable: %v", err),
 		}
 	}
-	portfolioSnapshot, err := a.portfolioBroker.FetchPortfolio(a.context())
+	portfolioSnapshot, _, err := a.fetchPortfolio()
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("load portfolio for order analysis: %w", err)
 	}
@@ -307,10 +330,7 @@ func (a *App) GetOrderAnalysis(contractID int64, side string, quantity float64) 
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("order analysis failed: %w", err)
 	}
-	return AIResponseView{
-		Text: response.Text, Provider: a.aiProviderName, Model: response.Model,
-		PromptID: response.PromptID, PromptVersion: response.PromptVersion,
-	}, nil
+	return toAIResponseView(response, a.aiProviderName), nil
 }
 
 // PreviewOrder validates a manual stock order and returns a short-lived confirmation preview.
@@ -369,39 +389,25 @@ func (a *App) GetStockNews(contractID int64) (AIResponseView, error) {
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("stock news failed: %w", err)
 	}
-	return AIResponseView{
-		Text:          response.Text,
-		Provider:      a.aiProviderName,
-		Model:         response.Model,
-		PromptID:      response.PromptID,
-		PromptVersion: response.PromptVersion,
-	}, nil
+	return toAIResponseView(response, a.aiProviderName), nil
 }
 
 // GetPortfolioResume generates a read-only summary from the latest normalized positions.
 func (a *App) GetPortfolioResume() (AIResponseView, error) {
-	portfolioSnapshot, err := a.fetchPortfolio()
+	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio()
 	if err != nil {
 		return AIResponseView{}, err
 	}
-
-	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
 	response, err := a.aiCounselor.PortfolioResume(a.context(), portfolioSnapshot, portfolioAnalytics)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio summary failed: %w", err)
 	}
-	return AIResponseView{
-		Text:          response.Text,
-		Provider:      a.aiProviderName,
-		Model:         response.Model,
-		PromptID:      response.PromptID,
-		PromptVersion: response.PromptVersion,
-	}, nil
+	return toAIResponseView(response, a.aiProviderName), nil
 }
 
 // GetPortfolioNews researches the latest material news for every open position.
 func (a *App) GetPortfolioNews() (AIResponseView, error) {
-	portfolioSnapshot, err := a.fetchPortfolio()
+	portfolioSnapshot, _, err := a.fetchPortfolio()
 	if err != nil {
 		return AIResponseView{}, err
 	}
@@ -410,27 +416,27 @@ func (a *App) GetPortfolioNews() (AIResponseView, error) {
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio news failed: %w", err)
 	}
-	return AIResponseView{
-		Text:          response.Text,
-		Provider:      a.aiProviderName,
-		Model:         response.Model,
-		PromptID:      response.PromptID,
-		PromptVersion: response.PromptVersion,
-	}, nil
+	return toAIResponseView(response, a.aiProviderName), nil
 }
 
-func (a *App) fetchPortfolio() (portfolio.Portfolio, error) {
+func (a *App) fetchPortfolio() (portfolio.Portfolio, analytics.Result, error) {
 	ctx := a.context()
 	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
-		return portfolio.Portfolio{}, fmt.Errorf("portfolio access requires an authenticated IBKR paper session: %s", status.Message)
+		return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("portfolio access requires an authenticated IBKR paper session: %s", status.Message)
 	}
 
 	portfolioSnapshot, err := a.portfolioBroker.FetchPortfolio(ctx)
 	if err != nil {
-		return portfolio.Portfolio{}, fmt.Errorf("failed to fetch portfolio: %w", err)
+		return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("failed to fetch portfolio: %w", err)
 	}
-	return portfolioSnapshot, nil
+	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
+	if a.store != nil {
+		if err := a.store.SavePortfolioSnapshot(ctx, portfolioSnapshot, portfolioAnalytics); err != nil {
+			return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("persist portfolio snapshot: %w", err)
+		}
+	}
+	return portfolioSnapshot, portfolioAnalytics, nil
 }
 
 func (a *App) context() context.Context {

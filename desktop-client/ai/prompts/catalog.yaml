@@ -1,13 +1,13 @@
 aliases:
   portfolio_news:
     id: portfolio_news
-    version: 1
+    version: 2
   portfolio_resume:
     id: portfolio_resume
-    version: 2
+    version: 3
   stock_news:
     id: stock_news
-    version: 1
+    version: 2
   order_analysis:
     id: order_analysis
-    version: 1
+    version: 2

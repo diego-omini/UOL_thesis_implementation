@@ -5,6 +5,7 @@ package main
 import (
 	"time"
 
+	"wails/ai"
 	"wails/analytics"
 	"wails/broker"
 	"wails/portfolio"
@@ -168,10 +169,47 @@ type PortfolioView struct {
 
 type AIResponseView struct {
 	Text          string
+	Structured    CounselorResponseView
+	HasStructured bool
 	Provider      string
 	Model         string
 	PromptID      string
 	PromptVersion int
+}
+
+type ReportedValueView struct {
+	FactID string
+	Value  float64
+	Unit   string
+}
+
+type CitationView struct {
+	Title string
+	URL   string
+}
+
+type CounselorObservationView struct {
+	Category          string
+	Statement         string
+	SupportingFactIDs []string
+	ReportedValues    []ReportedValueView
+	Severity          string
+	Confidence        string
+	Limitations       []string
+	Explanation       string
+	Citations         []CitationView
+}
+
+type CounselorLimitationView struct {
+	Statement string
+	FactIDs   []string
+}
+
+type CounselorResponseView struct {
+	SchemaVersion int
+	Summary       string
+	Observations  []CounselorObservationView
+	Limitations   []CounselorLimitationView
 }
 
 type OrderPreviewView struct {
@@ -307,6 +345,44 @@ func toOrderResultView(result trading.Result) OrderResultView {
 		OrderID: result.OrderID, Status: result.Status,
 		WarningToken: result.WarningToken, WarningMessages: result.WarningMessages,
 	}
+}
+
+// toAIResponseView maps validated counselor output into generated-binding-safe view types.
+func toAIResponseView(response ai.Response, provider string) AIResponseView {
+	view := AIResponseView{
+		Text: response.Text, Provider: provider, Model: response.Model,
+		PromptID: response.PromptID, PromptVersion: response.PromptVersion,
+	}
+	if response.Structured == nil {
+		return view
+	}
+	view.HasStructured = true
+	view.Structured = CounselorResponseView{
+		SchemaVersion: response.Structured.SchemaVersion,
+		Summary:       response.Structured.Summary,
+		Observations:  make([]CounselorObservationView, 0, len(response.Structured.Observations)),
+		Limitations:   make([]CounselorLimitationView, 0, len(response.Structured.Limitations)),
+	}
+	for _, observation := range response.Structured.Observations {
+		reportedValues := make([]ReportedValueView, 0, len(observation.ReportedValues))
+		for _, value := range observation.ReportedValues {
+			reportedValues = append(reportedValues, ReportedValueView(value))
+		}
+		citations := make([]CitationView, 0, len(observation.Citations))
+		for _, citation := range observation.Citations {
+			citations = append(citations, CitationView(citation))
+		}
+		view.Structured.Observations = append(view.Structured.Observations, CounselorObservationView{
+			Category: string(observation.Category), Statement: observation.Statement,
+			SupportingFactIDs: observation.SupportingFactIDs, ReportedValues: reportedValues,
+			Severity: string(observation.Severity), Confidence: string(observation.Confidence),
+			Limitations: observation.Limitations, Explanation: observation.Explanation, Citations: citations,
+		})
+	}
+	for _, limitation := range response.Structured.Limitations {
+		view.Structured.Limitations = append(view.Structured.Limitations, CounselorLimitationView(limitation))
+	}
+	return view
 }
 
 func toRatioView(ratio analytics.Ratio) RatioView {

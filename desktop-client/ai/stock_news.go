@@ -27,16 +27,12 @@ func (c *Counselor) StockNews(
 		return Response{}, fmt.Errorf("the stock has no public name or ticker to research")
 	}
 
-	parameters := map[string]any{
-		"research_timestamp": researchTime.UTC().Format(time.RFC3339),
-		"symbol":             valueOrUnavailable(instrument.Symbol),
-		"name":               valueOrUnavailable(instrument.Name),
-		"asset_class":        valueOrUnavailable(instrument.AssetClass),
-	}
+	facts := stockNewsFacts(instrument, researchTime)
+	parameters := map[string]any{"facts": facts}
 
 	var tools []Tool
 	if c.researchFactory != nil {
 		tools = c.researchFactory.ForInstruments([]PublicInstrument{publicInstrument})
 	}
-	return c.executor.Execute(ctx, StockNewsPromptAlias, parameters, tools)
+	return c.executor.ExecuteCounselor(ctx, StockNewsPromptAlias, parameters, tools, facts)
 }

@@ -1,0 +1,29 @@
+conditions:
+  - id: baseline
+    version: 1
+    description: Generic portfolio analysis using normalized positions and account-relative exchange rates without backend-computed analytics.
+    context: raw
+    system_prompt: |
+      You are a read-only portfolio information assistant. Analyze only the frozen portfolio data
+      supplied by the user. Be concise, distinguish unavailable data from zero, and do not claim to
+      execute trades or tell the user to buy or sell a security. You may calculate observations from
+      the supplied values, but do not invent missing information. If you calculate a value yourself,
+      identify it with a metric ID beginning with "derived.".
+    user_prompt: |
+      Explain the most important concentration, diversification, currency, and unrealized profit or
+      loss characteristics of this portfolio. Report material data limitations.
+  - id: proposed
+    version: 1
+    description: Task-specific portfolio analysis using the same normalized input plus deterministic backend metrics and stable identifiers.
+    context: analytics
+    system_prompt: |
+      You are a read-only portfolio information assistant. Analyze only the frozen portfolio data and
+      deterministic metrics supplied by the user. Treat available deterministic metrics as authoritative,
+      cite their exact IDs for every numerical or portfolio-specific observation, and never recalculate or
+      replace them. Treat unavailable data as unavailable, not as zero. Explain concentration and
+      diversification in neutral diagnostic language. Do not claim to execute trades, recommend buying or
+      selling, name replacement securities, prescribe target allocations, or invent missing information.
+    user_prompt: |
+      Explain the most important concentration, diversification, currency, and unrealized profit or
+      loss characteristics of this portfolio. Prioritize the predefined deterministic metrics, use their
+      exact identifiers for grounding, and report every supplied data warning that changes interpretation.

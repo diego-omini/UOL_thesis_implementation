@@ -26,6 +26,7 @@ type ollamaChatRequest struct {
 	Model    string                 `json:"model"`
 	Messages []ollamaMessage        `json:"messages"`
 	Tools    []ollamaToolDefinition `json:"tools,omitempty"`
+	Format   map[string]any         `json:"format,omitempty"`
 	Stream   bool                   `json:"stream"`
 	Options  ollamaOptions          `json:"options"`
 }
@@ -60,6 +61,8 @@ type ollamaFunctionDefinition struct {
 type ollamaOptions struct {
 	Temperature float64 `json:"temperature"`
 	MaxTokens   int     `json:"num_predict"`
+	Seed        int     `json:"seed,omitempty"`
+	ContextSize int     `json:"num_ctx,omitempty"`
 }
 
 type ollamaChatResponse struct {
@@ -83,10 +86,13 @@ func (p *OllamaProvider) Chat(ctx context.Context, request ChatRequest) (ChatRes
 		Model:    p.model,
 		Messages: toOllamaMessages(request.Messages),
 		Tools:    toOllamaTools(request.Tools),
+		Format:   request.ResponseSchema,
 		Stream:   false,
 		Options: ollamaOptions{
 			Temperature: request.Settings.Temperature,
 			MaxTokens:   request.Settings.MaxTokens,
+			Seed:        request.Settings.Seed,
+			ContextSize: request.Settings.ContextSize,
 		},
 	})
 	if err != nil {

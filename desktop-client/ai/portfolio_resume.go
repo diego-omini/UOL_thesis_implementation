@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"wails/analytics"
 	"wails/portfolio"
@@ -55,23 +54,14 @@ func (c *Counselor) PortfolioResume(
 		return Response{}, fmt.Errorf("the portfolio has no open positions to summarize")
 	}
 
-	parameters := map[string]any{
-		"analysis_timestamp":      result.CalculatedAt.UTC().Format(time.RFC3339),
-		"base_currency":           valueOrUnavailable(result.BaseCurrency),
-		"positions":               toPromptPositions(snapshot, result),
-		"sector_allocations":      toPromptAllocations(result.SectorAllocation),
-		"asset_class_allocations": toPromptAllocations(result.AssetClassAllocation),
-		"currency_allocations":    toPromptAllocations(result.CurrencyAllocation),
-		"top_three_concentration": formatRatio(result.TopThreeConcentration),
-		"hhi":                     formatRatio(result.HHI),
-		"data_warnings":           warningMessages(result.Warnings),
-	}
+	facts := portfolioResumeFacts(snapshot, result)
+	parameters := map[string]any{"facts": facts}
 
 	var tools []Tool
 	if c.researchFactory != nil {
 		tools = c.researchFactory.ForInstruments(toPublicInstruments(snapshot.Positions))
 	}
-	return c.executor.Execute(ctx, PortfolioResumePromptAlias, parameters, tools)
+	return c.executor.ExecuteCounselor(ctx, PortfolioResumePromptAlias, parameters, tools, facts)
 }
 
 func toPublicInstruments(positions []portfolio.Position) []PublicInstrument {

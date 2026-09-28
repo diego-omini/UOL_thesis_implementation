@@ -202,6 +202,21 @@ func (t *sourceFetchTool) Definition() ToolDefinition {
 	}
 }
 
+func (t *instrumentSearchTool) AcceptsCitation(rawURL string) bool {
+	return t.session.acceptsCitation(rawURL)
+}
+
+func (t *sourceFetchTool) AcceptsCitation(rawURL string) bool {
+	return t.session.acceptsCitation(rawURL)
+}
+
+func (s *researchSession) acceptsCitation(rawURL string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, accepted := s.approvedURLs[strings.TrimSpace(rawURL)]
+	return accepted
+}
+
 // Execute permits fetching only URLs accepted during the same isolated search session.
 func (t *sourceFetchTool) Execute(ctx context.Context, arguments map[string]any) (string, error) {
 	sourceURL := stringArgument(arguments, "url")

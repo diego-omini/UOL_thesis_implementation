@@ -18,42 +18,12 @@ type recordingProvider struct {
 	responses []ChatResponse
 }
 
-const validPortfolioResume = `## Overall assessment
-Summary.
-## Material findings
-Finding.
-## Diversifying factors and strengths
-Factors.
-## Risk-management considerations
-Considerations.
-## Data coverage and sources
-Coverage.`
+const validStructuredResponse = `{"schema_version":1,"summary":"Structured summary.","observations":[{"category":"general_information","statement":"General context","supporting_fact_ids":[],"reported_values":[],"severity":"informational","confidence":"high","limitations":[],"explanation":"General information only.","citations":[]}],"limitations":[{"statement":"This is general information, not personalized investment advice.","fact_ids":[]}]}`
 
-const validPortfolioNews = `## Portfolio news
-### AAPL — Apple Inc.
-No reliable recent item was found.
-## Coverage and sources
-Covered one of one positions.`
-
-const validStockNews = `## Latest company news
-### AAPL — Apple Inc.
-No reliable recent item was found.
-## Coverage and sources
-Research completed at the supplied timestamp.`
-
-const validOrderAnalysis = `## Order analysis
-**Valuation profile: indeterminate**
-**Evidence confidence: low**
-## Deterministic metrics
-Metrics.
-## Valuation and fundamentals
-Unavailable.
-## Business and financial risks
-Unavailable.
-## Order and portfolio impact
-Impact.
-## Evidence, confidence, and limitations
-Limitations.`
+const validPortfolioResume = validStructuredResponse
+const validPortfolioNews = validStructuredResponse
+const validStockNews = validStructuredResponse
+const validOrderAnalysis = validStructuredResponse
 
 func (p *recordingProvider) Chat(_ context.Context, request ChatRequest) (ChatResponse, error) {
 	p.requests = append(p.requests, request)
@@ -94,8 +64,11 @@ func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 		Quantity: 3,
 	}}}
 	result := analytics.Result{
-		CalculatedAt: calculatedAt,
-		BaseCurrency: "USD",
+		CalculatedAt:       calculatedAt,
+		BaseCurrency:       "USD",
+		NetMarketValue:     portfolio.Money{Amount: 100, Currency: "USD", Available: true},
+		GrossExposure:      portfolio.Money{Amount: 100, Currency: "USD", Available: true},
+		TotalUnrealizedPnL: portfolio.Money{Amount: 5, Currency: "USD", Available: true},
 		PositionWeights: []analytics.PositionWeight{
 			{Weight: analytics.Ratio{Value: 0.5, Available: true}},
 		},
@@ -110,7 +83,7 @@ func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortfolioResume returned an error: %v", err)
 	}
-	if response.Text != validPortfolioResume || response.PromptID != PortfolioResumePromptAlias || response.PromptVersion != 2 {
+	if response.Text != validPortfolioResume || response.Structured == nil || response.PromptID != PortfolioResumePromptAlias || response.PromptVersion != 3 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 	if len(provider.requests) != 1 {
@@ -119,16 +92,16 @@ func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 	request := provider.requests[0]
 	userPrompt := request.Messages[1].Content
 	for _, expected := range []string{
-		"AAPL | Apple Inc.",
-		"portfolio weight: 50.0%",
-		"Technology: 50.0%",
-		"Top-three concentration: 50.0%",
+		"id=position.aapl.symbol",
+		"id=position.aapl.weight",
+		"id=allocation.sector.technology.weight",
+		"id=portfolio.top_three_concentration",
 	} {
 		if !strings.Contains(userPrompt, expected) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, userPrompt)
 		}
 	}
-	if request.Settings.Temperature != 0.2 || request.Settings.MaxTokens != 1200 {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || request.ResponseSchema == nil {
 		t.Fatalf("unexpected response settings: %+v", request.Settings)
 	}
 	if len(request.Tools) != 2 {
@@ -167,15 +140,15 @@ func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortfolioNews returned an error: %v", err)
 	}
-	if response.Text != validPortfolioNews || response.PromptID != PortfolioNewsPromptAlias || response.PromptVersion != 1 {
+	if response.Text != validPortfolioNews || response.Structured == nil || response.PromptID != PortfolioNewsPromptAlias || response.PromptVersion != 2 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 	request := provider.requests[0]
 	userPrompt := request.Messages[1].Content
 	for _, expected := range []string{
-		"2026-09-20T12:00:00Z",
-		"AAPL | Apple Inc. | asset class: STK",
-		"MSFT | Microsoft Corp. | asset class: STK",
+		"id=research.timestamp",
+		"id=position.aapl.symbol",
+		"id=position.msft.symbol",
 	} {
 		if !strings.Contains(userPrompt, expected) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, userPrompt)
@@ -184,7 +157,7 @@ func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	if strings.Contains(userPrompt, "quantity") || strings.Contains(userPrompt, "portfolio weight") {
 		t.Fatalf("portfolio-news prompt contains private position data:\n%s", userPrompt)
 	}
-	if request.Settings.Temperature != 0.1 || request.Settings.MaxTokens != 3500 || len(request.Tools) != 2 {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 4200 || len(request.Tools) != 2 || request.ResponseSchema == nil {
 		t.Fatalf("unexpected portfolio-news request: %+v", request)
 	}
 }
@@ -217,17 +190,17 @@ func TestStockNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StockNews returned an error: %v", err)
 	}
-	if response.Text != validStockNews || response.PromptID != StockNewsPromptAlias || response.PromptVersion != 1 {
+	if response.Text != validStockNews || response.Structured == nil || response.PromptID != StockNewsPromptAlias || response.PromptVersion != 2 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 	request := provider.requests[0]
 	userPrompt := request.Messages[1].Content
-	for _, expected := range []string{"2026-09-25T12:00:00Z", "AAPL | Apple Inc. | asset class: STK"} {
+	for _, expected := range []string{"id=research.timestamp", "id=instrument.aapl.symbol", "text=Apple Inc."} {
 		if !strings.Contains(userPrompt, expected) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, userPrompt)
 		}
 	}
-	if request.Settings.Temperature != 0.1 || request.Settings.MaxTokens != 2000 || len(request.Tools) != 2 {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || len(request.Tools) != 2 || request.ResponseSchema == nil {
 		t.Fatalf("unexpected stock-news request: %+v", request)
 	}
 }
@@ -256,15 +229,26 @@ func TestOrderAnalysisExecutesActiveCatalogPrompt(t *testing.T) {
 		CalculatedAt: time.Date(2026, time.September, 26, 12, 0, 0, 0, time.UTC),
 		Instrument:   portfolio.Instrument{Symbol: "NESN", Name: "Nestlé S.A.", Exchange: "SIX", Currency: "CHF"},
 		Side:         "BUY", Quantity: 4,
-		EstimatedPrice:      portfolio.Money{Amount: 72.5, Currency: "CHF", Available: true},
-		EstimatedOrderValue: portfolio.Money{Amount: 290, Currency: "CHF", Available: true},
-		BaseOrderValue:      portfolio.Money{Amount: 290, Currency: "CHF", Available: true},
-		CashBalance:         portfolio.Money{Amount: 1000, Currency: "CHF", Available: true},
-		CashUsage:           stockanalysis.Metric{Value: .29, Available: true},
-		CurrentWeight:       stockanalysis.Metric{Value: .05, Available: true},
-		ResultingWeight:     stockanalysis.Metric{Value: .075, Available: true},
-		WeightChange:        stockanalysis.Metric{Value: .025, Available: true},
-		TotalReturn:         stockanalysis.Metric{Value: -.1, Available: true},
+		EstimatedPrice:        portfolio.Money{Amount: 72.5, Currency: "CHF", Available: true},
+		EstimatedOrderValue:   portfolio.Money{Amount: 290, Currency: "CHF", Available: true},
+		BaseOrderValue:        portfolio.Money{Amount: 290, Currency: "CHF", Available: true},
+		CashBalance:           portfolio.Money{Amount: 1000, Currency: "CHF", Available: true},
+		CashUsage:             stockanalysis.Metric{Value: .29, Available: true},
+		CurrentQuantity:       2,
+		ResultingQuantity:     6,
+		CurrentWeight:         stockanalysis.Metric{Value: .05, Available: true},
+		ResultingWeight:       stockanalysis.Metric{Value: .075, Available: true},
+		WeightChange:          stockanalysis.Metric{Value: .025, Available: true},
+		HistoryStart:          time.Date(2025, time.September, 26, 0, 0, 0, 0, time.UTC),
+		HistoryEnd:            time.Date(2026, time.September, 26, 0, 0, 0, 0, time.UTC),
+		HistoryObservations:   252,
+		TotalReturn:           stockanalysis.Metric{Value: -.1, Available: true},
+		AnnualizedVolatility:  stockanalysis.Metric{Value: .2, Available: true},
+		MaximumDrawdown:       stockanalysis.Metric{Value: -.15, Available: true},
+		PositionIn52WeekRange: stockanalysis.Metric{Value: .4, Available: true},
+		DistanceFromSMA50:     stockanalysis.Metric{Value: -.02, Available: true},
+		DistanceFromSMA200:    stockanalysis.Metric{Value: .03, Available: true},
+		MarketDataStatus:      "live",
 	}
 	response, err := counselor.OrderAnalysis(context.Background(), result)
 	if err != nil {
@@ -274,12 +258,12 @@ func TestOrderAnalysisExecutesActiveCatalogPrompt(t *testing.T) {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 	request := provider.requests[0]
-	for _, expected := range []string{"NESN | Nestlé S.A.", "Side: BUY", "Cash usage: 29.0%", "Resulting portfolio weight: 7.5%"} {
+	for _, expected := range []string{"id=instrument.nesn.symbol", "id=order.side", "id=order.cash_usage", "id=position.resulting_weight"} {
 		if !strings.Contains(request.Messages[1].Content, expected) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, request.Messages[1].Content)
 		}
 	}
-	if request.Settings.Temperature != .1 || request.Settings.MaxTokens != 1800 || len(request.Tools) != 2 {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 3600 || len(request.Tools) != 2 || request.ResponseSchema == nil {
 		t.Fatalf("unexpected order-analysis request: %+v", request)
 	}
 }

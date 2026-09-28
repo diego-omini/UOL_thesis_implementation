@@ -29,6 +29,7 @@ type ParameterDefinition struct {
 // ResponseSettings controls model generation and final response validation.
 type ResponseSettings struct {
 	Format           string   `yaml:"format"`
+	Schema           string   `yaml:"schema"`
 	RequiredSections []string `yaml:"required_sections"`
 	MaxCharacters    int      `yaml:"max_characters"`
 	Temperature      float64  `yaml:"temperature"`
@@ -188,6 +189,11 @@ func validateDefinition(definition PromptDefinition) error {
 	}
 	if definition.Response.Format != "markdown" && len(definition.Response.RequiredSections) > 0 {
 		return fmt.Errorf("required_sections can only be used with markdown responses")
+	}
+	if definition.Response.Schema != "" {
+		if definition.Response.Format != "json" || definition.Response.Schema != CounselorResponseSchema {
+			return fmt.Errorf("response schema must be %q with JSON format", CounselorResponseSchema)
+		}
 	}
 	for _, section := range definition.Response.RequiredSections {
 		if strings.TrimSpace(section) == "" {

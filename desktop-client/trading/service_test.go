@@ -4,6 +4,7 @@ package trading
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,19 @@ import (
 	"wails/broker"
 	"wails/portfolio"
 )
+
+type testAuditRecorder struct {
+	events     []AuditEvent
+	failOnType string
+}
+
+func (r *testAuditRecorder) RecordOrderAudit(_ context.Context, event AuditEvent) error {
+	r.events = append(r.events, event)
+	if event.EventType == r.failOnType {
+		return errors.New("audit unavailable")
+	}
+	return nil
+}
 
 type testBroker struct {
 	portfolio    portfolio.Portfolio
@@ -146,5 +160,46 @@ func TestBrokerWarningRequiresOpaqueExplicitReply(t *testing.T) {
 	final, err := service.RespondToWarning(context.Background(), result.WarningToken, true)
 	if err != nil || final.OrderID != "200" || b.replyCalls != 1 {
 		t.Fatalf("RespondToWarning() = %#v, %v; calls=%d", final, err, b.replyCalls)
+	}
+}
+
+func TestSubmissionAuditFailurePreventsBrokerMutation(t *testing.T) {
+	b := newTestBroker()
+	recorder := &testAuditRecorder{failOnType: AuditSubmissionAttempted}
+	service := NewService(b, b, b)
+	service.SetAuditRecorder(recorder)
+	preview, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
+	if err != nil {
+		t.Fatalf("PreviewOrder returned an error: %v", err)
+	}
+	if _, err := service.ConfirmOrder(context.Background(), preview.Token); err == nil || !strings.Contains(err.Error(), "persist order submission audit") {
+		t.Fatalf("expected audit error, got %v", err)
+	}
+	if b.submitCalls != 0 {
+		t.Fatalf("broker submission occurred despite missing pre-audit: %d", b.submitCalls)
+	}
+}
+
+func TestOrderAuditRecordsTransitionsWithoutOpaqueTokens(t *testing.T) {
+	b := newTestBroker()
+	recorder := &testAuditRecorder{}
+	service := NewService(b, b, b)
+	service.SetAuditRecorder(recorder)
+	preview, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.ConfirmOrder(context.Background(), preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.OrderID == "" || len(recorder.events) != 3 {
+		t.Fatalf("unexpected result or audit events: %+v %+v", result, recorder.events)
+	}
+	want := []string{AuditPreviewCreated, AuditSubmissionAttempted, AuditSubmissionAcknowledged}
+	for index, eventType := range want {
+		if recorder.events[index].EventType != eventType {
+			t.Fatalf("event %d = %q, want %q", index, recorder.events[index].EventType, eventType)
+		}
 	}
 }
