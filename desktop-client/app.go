@@ -14,6 +14,7 @@ import (
 	"wails/analytics"
 	"wails/broker"
 	"wails/config"
+	"wails/fundholdings"
 	"wails/gateway"
 	"wails/ibkr"
 	"wails/persistence"
@@ -37,6 +38,7 @@ type App struct {
 	aiProviderName   string
 	trading          *trading.Service
 	store            *persistence.Store
+	fundHoldings     *fundholdings.Service
 }
 
 // NewApp creates the Wails application object.
@@ -71,6 +73,7 @@ func NewApp() (*App, error) {
 	)
 
 	tradingService := trading.NewService(client, client, client)
+	fundHoldingsService := fundholdings.NewService(fundholdings.NewISharesSource(nil))
 	var store *persistence.Store
 	if !generatingBindings {
 		dataDirectory, err := config.DataDirectory()
@@ -95,6 +98,7 @@ func NewApp() (*App, error) {
 		aiProviderName:   cfg.AI.Provider,
 		trading:          tradingService,
 		store:            store,
+		fundHoldings:     fundHoldingsService,
 	}, nil
 }
 
@@ -419,6 +423,7 @@ func (a *App) GetPortfolioNews() (AIResponseView, error) {
 	return toAIResponseView(response, a.aiProviderName), nil
 }
 
+// fetchPortfolio coordinates broker retrieval, public fund data, deterministic analytics, and persistence.
 func (a *App) fetchPortfolio() (portfolio.Portfolio, analytics.Result, error) {
 	ctx := a.context()
 	status := a.sessionBroker.CheckSession(ctx)
@@ -430,7 +435,13 @@ func (a *App) fetchPortfolio() (portfolio.Portfolio, analytics.Result, error) {
 	if err != nil {
 		return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("failed to fetch portfolio: %w", err)
 	}
-	portfolioAnalytics := analytics.Calculate(portfolioSnapshot, time.Now())
+	calculatedAt := time.Now()
+	instruments := make([]portfolio.Instrument, 0, len(portfolioSnapshot.Positions))
+	for _, position := range portfolioSnapshot.Positions {
+		instruments = append(instruments, position.Instrument)
+	}
+	holdings := a.fundHoldings.ResolveInstruments(ctx, instruments, calculatedAt)
+	portfolioAnalytics := analytics.CalculateWithFundHoldings(portfolioSnapshot, holdings, calculatedAt)
 	if a.store != nil {
 		if err := a.store.SavePortfolioSnapshot(ctx, portfolioSnapshot, portfolioAnalytics); err != nil {
 			return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("persist portfolio snapshot: %w", err)

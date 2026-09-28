@@ -268,6 +268,92 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class FundLookThroughView {
+	    FundSymbol: string;
+	    FundName: string;
+	    Available: boolean;
+	    Complete: boolean;
+	    SourceURL: string;
+	    SourceType: string;
+	    RetrievedAt: string;
+	    ExpiresAt: string;
+	    EffectiveDate: string;
+	    CoveragePercentage: number;
+	    CoverageAvailable: boolean;
+	    TopHoldingsOnly: boolean;
+	    CurrencyAssumptions: string[];
+	    ClassificationAssumptions: string[];
+	    Warnings: string[];
+	    Confidence: string;
+
+	    static createFrom(source: any = {}) {
+	        return new FundLookThroughView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.FundSymbol = source["FundSymbol"];
+	        this.FundName = source["FundName"];
+	        this.Available = source["Available"];
+	        this.Complete = source["Complete"];
+	        this.SourceURL = source["SourceURL"];
+	        this.SourceType = source["SourceType"];
+	        this.RetrievedAt = source["RetrievedAt"];
+	        this.ExpiresAt = source["ExpiresAt"];
+	        this.EffectiveDate = source["EffectiveDate"];
+	        this.CoveragePercentage = source["CoveragePercentage"];
+	        this.CoverageAvailable = source["CoverageAvailable"];
+	        this.TopHoldingsOnly = source["TopHoldingsOnly"];
+	        this.CurrencyAssumptions = source["CurrencyAssumptions"];
+	        this.ClassificationAssumptions = source["ClassificationAssumptions"];
+	        this.Warnings = source["Warnings"];
+	        this.Confidence = source["Confidence"];
+	    }
+	}
+	export class EffectiveExposureView {
+	    MetricID: string;
+	    SecurityID: string;
+	    Symbol: string;
+	    Name: string;
+	    Sector: string;
+	    MarketValue: MoneyView;
+	    Exposure: MoneyView;
+	    Weight: RatioView;
+
+	    static createFrom(source: any = {}) {
+	        return new EffectiveExposureView(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.MetricID = source["MetricID"];
+	        this.SecurityID = source["SecurityID"];
+	        this.Symbol = source["Symbol"];
+	        this.Name = source["Name"];
+	        this.Sector = source["Sector"];
+	        this.MarketValue = this.convertValues(source["MarketValue"], MoneyView);
+	        this.Exposure = this.convertValues(source["Exposure"], MoneyView);
+	        this.Weight = this.convertValues(source["Weight"], RatioView);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class DataWarningView {
 	    Code: string;
 	    Message: string;
@@ -358,6 +444,10 @@ export namespace main {
 	    HHI: RatioView;
 	    ExchangeRates: ExchangeRateView[];
 	    Warnings: DataWarningView[];
+	    EffectiveSecurityExposure: EffectiveExposureView[];
+	    EffectiveSectorAllocation: AllocationView[];
+	    FundLookThrough: FundLookThroughView[];
+	    EffectiveExposureComplete: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new AnalyticsView(source);
@@ -378,6 +468,10 @@ export namespace main {
 	        this.HHI = this.convertValues(source["HHI"], RatioView);
 	        this.ExchangeRates = this.convertValues(source["ExchangeRates"], ExchangeRateView);
 	        this.Warnings = this.convertValues(source["Warnings"], DataWarningView);
+	        this.EffectiveSecurityExposure = this.convertValues(source["EffectiveSecurityExposure"], EffectiveExposureView);
+	        this.EffectiveSectorAllocation = this.convertValues(source["EffectiveSectorAllocation"], AllocationView);
+	        this.FundLookThrough = this.convertValues(source["FundLookThrough"], FundLookThroughView);
+	        this.EffectiveExposureComplete = source["EffectiveExposureComplete"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -413,6 +507,8 @@ export namespace main {
 	        this.Message = source["Message"];
 	    }
 	}
+
+
 
 
 

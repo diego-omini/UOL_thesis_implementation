@@ -155,6 +155,65 @@
   </section>
 {/if}
 
+{#if !portfolio.Empty && portfolio.Analytics.EffectiveSecurityExposure.length > 0}
+  <div class="analytics-heading effective-heading">
+    <h2>Effective exposure</h2>
+    <span>{portfolio.Analytics.EffectiveExposureComplete ? 'Complete effective-exposure inputs' : 'Incomplete — unknown exposure remains visible'}</span>
+  </div>
+  <section class="allocation-grid" aria-label="Effective look-through exposure">
+    <article class="allocation-card">
+      <h3>Underlying securities</h3>
+      {#each portfolio.Analytics.EffectiveSecurityExposure.slice(0, 10) as exposure}
+        <div class="allocation-row">
+          <span>{exposure.Symbol || exposure.Name || 'Unknown'}</span>
+          <strong>{formatPercent(exposure.Weight)}</strong>
+          <small>{exposure.Name || exposure.Sector} · {formatMoney(exposure.MarketValue)}</small>
+        </div>
+      {/each}
+    </article>
+    <article class="allocation-card">
+      <h3>Effective sectors</h3>
+      {#each portfolio.Analytics.EffectiveSectorAllocation as allocation}
+        <div class="allocation-row"><span>{allocation.Label}</span><strong>{formatPercent(allocation.Weight)}</strong><small>{formatMoney(allocation.MarketValue)}</small></div>
+      {/each}
+    </article>
+  </section>
+{/if}
+
+{#if portfolio.Analytics.FundLookThrough.length > 0}
+  <section class="look-through-quality" aria-label="Fund holdings data quality">
+    <strong>Fund holdings data</strong>
+    {#each portfolio.Analytics.FundLookThrough as fund}
+      <article>
+        <div class="quality-heading">
+          <span>{fund.FundSymbol || fund.FundName || 'Unknown fund'}</span>
+          <strong class:limited={!fund.Complete}>{fund.Complete ? 'Complete' : 'Incomplete'} · {fund.Confidence}</strong>
+        </div>
+        <p>
+          {fund.Available
+            ? `${fund.SourceType}; effective ${formatDate(fund.EffectiveDate)}; retrieved ${formatDate(fund.RetrievedAt)}`
+            : 'No reliable structured issuer holdings source is available.'}
+          {fund.CoverageAvailable ? ` Coverage: ${fund.CoveragePercentage.toFixed(2)}%.` : ''}
+          {fund.TopHoldingsOnly ? ' Only top holdings are available.' : ''}
+        </p>
+        {#if fund.SourceURL}<small>{fund.SourceURL}</small>{/if}
+        {#if fund.Warnings.length > 0}
+          <ul>{#each fund.Warnings as warning}<li>{warning}</li>{/each}</ul>
+        {/if}
+        {#if fund.CurrencyAssumptions.length > 0 || fund.ClassificationAssumptions.length > 0}
+          <details>
+            <summary>Method assumptions</summary>
+            <ul>
+              {#each fund.CurrencyAssumptions as assumption}<li>{assumption}</li>{/each}
+              {#each fund.ClassificationAssumptions as assumption}<li>{assumption}</li>{/each}
+            </ul>
+          </details>
+        {/if}
+      </article>
+    {/each}
+  </section>
+{/if}
+
 <section class="table-section" aria-label="Positions">
   <div class="section-heading">
     <div class="section-title"><h2>Positions</h2><span>{portfolio.Positions.length} open</span></div>
@@ -226,6 +285,7 @@
   .allocation-grid,
   .warning,
   .exchange-rates,
+  .look-through-quality,
   .table-section {
     max-width: 1180px;
     margin: 0 auto 16px;
@@ -276,6 +336,17 @@
   .exchange-rates { border-color: #7a8797; }
   .exchange-rates div { display: flex; justify-content: space-between; gap: 16px; }
   .exchange-rates small { color: #5d6a7a; }
+
+  .effective-heading { margin-top: 28px; }
+  .look-through-quality { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid #d8e0e8; border-radius: 6px; background: white; }
+  .look-through-quality article { display: grid; gap: 7px; padding-top: 12px; border-top: 1px solid #edf1f5; }
+  .look-through-quality p, .look-through-quality ul { margin: 0; color: #5d6a7a; line-height: 1.5; }
+  .look-through-quality ul { padding-left: 20px; }
+  .look-through-quality small { overflow-wrap: anywhere; color: #6f7b89; }
+  .look-through-quality details summary { color: #355166; cursor: pointer; font-weight: 700; }
+  .quality-heading { display: flex; justify-content: space-between; gap: 16px; }
+  .quality-heading strong { color: #16835b; text-transform: capitalize; }
+  .quality-heading strong.limited { color: #a26500; }
 
   .allocation-grid {
     display: grid;

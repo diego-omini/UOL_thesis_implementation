@@ -86,6 +86,10 @@ Portfolio-wide calculations use the account base currency. IBKR base-currency po
 
 Position and allocation weights use absolute market exposure, so short positions do not cancel long positions. The concentration index is the sum of squared position weights and ranges from values near zero for broadly distributed portfolios to one for a single-position portfolio.
 
+Effective exposure replaces a supported fund wrapper with its normalized underlying holdings, then combines those holdings with direct positions and holdings reached through other funds. The dashboard keeps residual, unavailable, and unclassified exposure visible and shows the issuer source, retrieval time, holdings effective date, reported coverage, assumptions, warnings, and confidence. These values are calculated in Go and supplied to the counselor under stable `effective.security.*.weight` and `effective.sector.*.weight` fact identifiers.
+
+The current source registry supports the iShares Core S&P 500 ETF (`IVV`) through its official full-holdings CSV. Both ticker and issuer fund name must match before the application downloads the fixed issuer URL. Downloads are cached in memory for six hours with an explicit expiry. Other funds are reported as unsupported until a reliable structured issuer adapter and exact identity mapping are added; the application does not scrape issuer pages, derive holdings from search snippets, or ask the model to supply holdings.
+
 ## Local persistence
 
 The application creates `portfolio-tracker.db` in the current user's `uol-portfolio-tracker` configuration directory. GORM migrations create four focused SQLite tables:
@@ -149,4 +153,4 @@ The command records the Ollama version and installed model digest, writes a time
 - Manual trading is limited to whole-share DAY stock market orders. Limit orders, fractional shares, open-order management, and execution history are not implemented. Order audit records describe application transitions and broker acknowledgements, not authoritative fills.
 - The prompt catalog contains a portfolio resume, a per-position portfolio-news digest, a single-stock news summary, and proposed-order analysis.
 - Web research requires `OLLAMA_API_KEY`; without it, the counselor continues with deterministic portfolio context and reports the research limitation.
-- Fund holdings can be researched, but deterministic fund look-through aggregation is not implemented yet.
+- Deterministic look-through currently supports only the exact `IVV` issuer identity. All other ETFs and funds retain explicit unknown exposure until a source-specific structured adapter is implemented.

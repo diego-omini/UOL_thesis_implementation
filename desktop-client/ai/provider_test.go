@@ -75,8 +75,19 @@ func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 		SectorAllocation: []analytics.Allocation{
 			{Label: "Technology", Weight: analytics.Ratio{Value: 0.5, Available: true}},
 		},
-		TopThreeConcentration: analytics.Ratio{Value: 0.5, Available: true},
-		HHI:                   analytics.Ratio{Value: 0.25, Available: true},
+		EffectiveSecurityExposure: []analytics.EffectiveExposure{{
+			MetricID: "effective.security.symbol_aapl.weight", Symbol: "AAPL", Name: "Apple Inc.",
+			Weight: analytics.Ratio{Value: 0.6, Available: true},
+		}},
+		EffectiveSectorAllocation: []analytics.Allocation{{Label: "Technology", Weight: analytics.Ratio{Value: 0.6, Available: true}}},
+		FundLookThrough: []portfolio.FundHoldings{{
+			Fund: snapshot.Positions[0].Instrument, Available: true, Complete: true,
+			SourceURL: "https://issuer.example/holdings.csv", SourceType: "official_issuer_full_holdings_csv",
+			RetrievedAt: calculatedAt, EffectiveDate: calculatedAt, CoveragePercentage: portfolio.Percentage{Value: 100, Available: true}, Confidence: "high",
+		}},
+		EffectiveExposureComplete: true,
+		TopThreeConcentration:     analytics.Ratio{Value: 0.5, Available: true},
+		HHI:                       analytics.Ratio{Value: 0.25, Available: true},
 	}
 
 	response, err := counselor.PortfolioResume(context.Background(), snapshot, result)
@@ -95,6 +106,9 @@ func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 		"id=position.aapl.symbol",
 		"id=position.aapl.weight",
 		"id=allocation.sector.technology.weight",
+		"id=effective.security.symbol_aapl.weight",
+		"id=effective.sector.technology.weight",
+		"id=position.aapl.look_through.coverage",
 		"id=portfolio.top_three_concentration",
 	} {
 		if !strings.Contains(userPrompt, expected) {

@@ -4,7 +4,9 @@ package analytics
 // This file computes portfolio totals, concentration measures, allocations, and data warnings.
 
 import (
+	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -13,11 +15,13 @@ import (
 )
 
 const (
-	MetricNetMarketValue        = "portfolio.net_market_value"
-	MetricGrossExposure         = "portfolio.gross_exposure"
-	MetricTotalUnrealizedPnL    = "portfolio.total_unrealized_pnl"
-	MetricTopThreeConcentration = "portfolio.top_three_concentration"
-	MetricHHI                   = "portfolio.hhi"
+	MetricNetMarketValue          = "portfolio.net_market_value"
+	MetricGrossExposure           = "portfolio.gross_exposure"
+	MetricTotalUnrealizedPnL      = "portfolio.total_unrealized_pnl"
+	MetricTopThreeConcentration   = "portfolio.top_three_concentration"
+	MetricHHI                     = "portfolio.hhi"
+	MetricEffectiveSecurityPrefix = "effective.security."
+	MetricEffectiveSectorPrefix   = "effective.sector."
 )
 
 type Ratio struct {
@@ -46,21 +50,37 @@ type DataWarning struct {
 	Count   int
 }
 
+// EffectiveExposure aggregates direct positions and fund constituents at one security identity.
+type EffectiveExposure struct {
+	MetricID    string
+	SecurityID  string
+	Symbol      string
+	Name        string
+	Sector      string
+	MarketValue portfolio.Money
+	Exposure    portfolio.Money
+	Weight      Ratio
+}
+
 type Result struct {
-	CalculatedAt          time.Time
-	BaseCurrency          string
-	NetMarketValue        portfolio.Money
-	GrossExposure         portfolio.Money
-	TotalUnrealizedPnL    portfolio.Money
-	PositionWeights       []PositionWeight
-	LargestPositions      []PositionWeight
-	CurrencyAllocation    []Allocation
-	AssetClassAllocation  []Allocation
-	SectorAllocation      []Allocation
-	TopThreeConcentration Ratio
-	HHI                   Ratio
-	ExchangeRates         []portfolio.ExchangeRate
-	Warnings              []DataWarning
+	CalculatedAt              time.Time
+	BaseCurrency              string
+	NetMarketValue            portfolio.Money
+	GrossExposure             portfolio.Money
+	TotalUnrealizedPnL        portfolio.Money
+	PositionWeights           []PositionWeight
+	LargestPositions          []PositionWeight
+	CurrencyAllocation        []Allocation
+	AssetClassAllocation      []Allocation
+	SectorAllocation          []Allocation
+	TopThreeConcentration     Ratio
+	HHI                       Ratio
+	ExchangeRates             []portfolio.ExchangeRate
+	Warnings                  []DataWarning
+	EffectiveSecurityExposure []EffectiveExposure
+	EffectiveSectorAllocation []Allocation
+	FundLookThrough           []portfolio.FundHoldings
+	EffectiveExposureComplete bool
 }
 
 type allocationValue struct {
@@ -182,6 +202,188 @@ func Calculate(snapshot portfolio.Portfolio, calculatedAt time.Time) Result {
 	}
 
 	result.Warnings = buildWarnings(warningCounts)
+	return result
+}
+
+// CalculateWithFundHoldings adds deterministic effective exposure while retaining ordinary analytics.
+func CalculateWithFundHoldings(snapshot portfolio.Portfolio, holdings []portfolio.FundHoldings, calculatedAt time.Time) Result {
+	result := Calculate(snapshot, calculatedAt)
+	result.FundLookThrough = cloneFundResults(holdings)
+	if !result.GrossExposure.Available {
+		return result
+	}
+
+	byContract := make(map[int64]portfolio.FundHoldings)
+	bySymbol := make(map[string]portfolio.FundHoldings)
+	for _, value := range holdings {
+		if value.Fund.ContractID > 0 {
+			byContract[value.Fund.ContractID] = value
+		}
+		if symbol := normalizedSymbol(value.Fund.Symbol); symbol != "" {
+			bySymbol[symbol] = value
+		}
+	}
+
+	directKeys := make(map[string]string)
+	for _, position := range snapshot.Positions {
+		if _, found := fundResult(position.Instrument, byContract, bySymbol); found {
+			continue
+		}
+		if symbol := normalizedSymbol(position.Instrument.Symbol); symbol != "" {
+			directKeys[symbol] = "symbol:" + symbol
+		}
+	}
+
+	securityValues := make(map[string]*EffectiveExposure)
+	sectorValues := make(map[string]allocationValue)
+	complete := true
+	for index, position := range snapshot.Positions {
+		if index >= len(result.PositionWeights) || !result.PositionWeights[index].MarketValue.Available {
+			complete = false
+			continue
+		}
+		baseValue := result.PositionWeights[index].MarketValue.Amount
+		fund, hasFund := fundResult(position.Instrument, byContract, bySymbol)
+		if !hasFund && !isFundInstrument(position.Instrument) {
+			addEffectiveSecurity(securityValues, directSecurityKey(position.Instrument), position.Instrument.Symbol,
+				position.Instrument.Name, position.Instrument.Sector, baseValue, result.BaseCurrency)
+			addAllocation(sectorValues, labelOrDefault(position.Instrument.Sector, "Unclassified"), baseValue)
+			continue
+		}
+
+		if !hasFund || !fund.Available || len(fund.Holdings) == 0 {
+			complete = false
+			addEffectiveSecurity(securityValues, unknownFundKey(position.Instrument), position.Instrument.Symbol,
+				"Unresolved fund exposure: "+labelOrDefault(position.Instrument.Name, position.Instrument.Symbol), "Unclassified", baseValue, result.BaseCurrency)
+			addAllocation(sectorValues, "Unclassified", baseValue)
+			continue
+		}
+		if !fund.Complete {
+			complete = false
+		}
+
+		weightTotal := 0.0
+		for _, holding := range fund.Holdings {
+			if math.IsNaN(holding.Weight) || math.IsInf(holding.Weight, 0) {
+				complete = false
+				continue
+			}
+			weightTotal += holding.Weight
+			value := baseValue * holding.Weight
+			key := holdingSecurityKey(holding, directKeys)
+			addEffectiveSecurity(securityValues, key, holding.Symbol, holding.Name, holding.Sector, value, result.BaseCurrency)
+			addAllocation(sectorValues, labelOrDefault(holding.Sector, "Unclassified"), value)
+		}
+		residual := 1 - weightTotal
+		if math.Abs(residual) > 0.0005 {
+			complete = false
+			value := baseValue * residual
+			addEffectiveSecurity(securityValues, unknownFundKey(position.Instrument), position.Instrument.Symbol,
+				"Unreported fund exposure: "+labelOrDefault(position.Instrument.Name, position.Instrument.Symbol), "Unclassified", value, result.BaseCurrency)
+			addAllocation(sectorValues, "Unclassified", value)
+		}
+	}
+
+	gross := 0.0
+	for _, exposure := range securityValues {
+		gross += math.Abs(exposure.MarketValue.Amount)
+	}
+	for _, exposure := range securityValues {
+		exposure.Exposure = portfolio.Money{Amount: math.Abs(exposure.MarketValue.Amount), Currency: result.BaseCurrency, Available: true}
+		if gross > 0 {
+			exposure.Weight = Ratio{Value: exposure.Exposure.Amount / gross, Available: true}
+		}
+		result.EffectiveSecurityExposure = append(result.EffectiveSecurityExposure, *exposure)
+	}
+	sort.Slice(result.EffectiveSecurityExposure, func(i, j int) bool {
+		if result.EffectiveSecurityExposure[i].Weight.Value == result.EffectiveSecurityExposure[j].Weight.Value {
+			return result.EffectiveSecurityExposure[i].MetricID < result.EffectiveSecurityExposure[j].MetricID
+		}
+		return result.EffectiveSecurityExposure[i].Weight.Value > result.EffectiveSecurityExposure[j].Weight.Value
+	})
+	result.EffectiveSectorAllocation = buildAllocations(sectorValues, result.BaseCurrency, gross)
+	for index := range result.EffectiveSectorAllocation {
+		result.EffectiveSectorAllocation[index].Label = strings.TrimSpace(result.EffectiveSectorAllocation[index].Label)
+	}
+	result.EffectiveExposureComplete = complete
+	return result
+}
+
+var metricIDCharacters = regexp.MustCompile(`[^a-z0-9]+`)
+
+func addEffectiveSecurity(values map[string]*EffectiveExposure, key, symbol, name, sector string, value float64, currency string) {
+	existing := values[key]
+	if existing == nil {
+		segment := strings.Trim(metricIDCharacters.ReplaceAllString(strings.ToLower(key), "_"), "_")
+		existing = &EffectiveExposure{
+			MetricID: MetricEffectiveSecurityPrefix + segment + ".weight", SecurityID: key,
+			Symbol: strings.TrimSpace(symbol), Name: strings.TrimSpace(name), Sector: labelOrDefault(sector, "Unclassified"),
+			MarketValue: portfolio.Money{Currency: currency, Available: true},
+		}
+		values[key] = existing
+	}
+	existing.MarketValue.Amount += value
+}
+
+func fundResult(instrument portfolio.Instrument, byContract map[int64]portfolio.FundHoldings, bySymbol map[string]portfolio.FundHoldings) (portfolio.FundHoldings, bool) {
+	if instrument.ContractID > 0 {
+		if value, ok := byContract[instrument.ContractID]; ok {
+			return value, true
+		}
+	}
+	value, ok := bySymbol[normalizedSymbol(instrument.Symbol)]
+	return value, ok
+}
+
+func isFundInstrument(instrument portfolio.Instrument) bool {
+	assetClass := strings.ToUpper(strings.TrimSpace(instrument.AssetClass))
+	name := strings.ToUpper(strings.TrimSpace(instrument.Name))
+	return assetClass == "FUND" || assetClass == "ETF" || strings.Contains(name, " ETF") || strings.HasSuffix(name, "ETF")
+}
+
+func directSecurityKey(instrument portfolio.Instrument) string {
+	if symbol := normalizedSymbol(instrument.Symbol); symbol != "" {
+		return "symbol:" + symbol
+	}
+	if instrument.ContractID > 0 {
+		return fmt.Sprintf("contract:%d", instrument.ContractID)
+	}
+	return "name:" + strings.ToLower(strings.TrimSpace(instrument.Name))
+}
+
+func holdingSecurityKey(holding portfolio.FundHolding, directKeys map[string]string) string {
+	if key := directKeys[normalizedSymbol(holding.Symbol)]; key != "" {
+		return key
+	}
+	if identifier := strings.ToUpper(strings.TrimSpace(holding.SecurityID)); identifier != "" {
+		return "id:" + identifier
+	}
+	if symbol := normalizedSymbol(holding.Symbol); symbol != "" {
+		return "symbol:" + symbol
+	}
+	return "name:" + strings.ToLower(strings.TrimSpace(holding.Name))
+}
+
+func unknownFundKey(instrument portfolio.Instrument) string {
+	if instrument.ContractID > 0 {
+		return fmt.Sprintf("unknown:fund:%d", instrument.ContractID)
+	}
+	return "unknown:fund:" + normalizedSymbol(instrument.Symbol)
+}
+
+func normalizedSymbol(value string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
+}
+
+func cloneFundResults(values []portfolio.FundHoldings) []portfolio.FundHoldings {
+	result := make([]portfolio.FundHoldings, len(values))
+	for index, value := range values {
+		value.Holdings = append([]portfolio.FundHolding(nil), value.Holdings...)
+		value.Warnings = append([]string(nil), value.Warnings...)
+		value.CurrencyAssumptions = append([]string(nil), value.CurrencyAssumptions...)
+		value.ClassificationAssumptions = append([]string(nil), value.ClassificationAssumptions...)
+		result[index] = value
+	}
 	return result
 }
 

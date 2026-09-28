@@ -135,6 +135,36 @@ type DataWarningView struct {
 	Count   int
 }
 
+type EffectiveExposureView struct {
+	MetricID    string
+	SecurityID  string
+	Symbol      string
+	Name        string
+	Sector      string
+	MarketValue MoneyView
+	Exposure    MoneyView
+	Weight      RatioView
+}
+
+type FundLookThroughView struct {
+	FundSymbol                string
+	FundName                  string
+	Available                 bool
+	Complete                  bool
+	SourceURL                 string
+	SourceType                string
+	RetrievedAt               string
+	ExpiresAt                 string
+	EffectiveDate             string
+	CoveragePercentage        float64
+	CoverageAvailable         bool
+	TopHoldingsOnly           bool
+	CurrencyAssumptions       []string
+	ClassificationAssumptions []string
+	Warnings                  []string
+	Confidence                string
+}
+
 type ExchangeRateView struct {
 	Currency          string
 	BaseCurrency      string
@@ -145,19 +175,23 @@ type ExchangeRateView struct {
 }
 
 type AnalyticsView struct {
-	CalculatedAt          string
-	BaseCurrency          string
-	NetMarketValue        MoneyView
-	GrossExposure         MoneyView
-	TotalUnrealizedPnL    MoneyView
-	LargestPositions      []PositionWeightView
-	CurrencyAllocation    []AllocationView
-	AssetClassAllocation  []AllocationView
-	SectorAllocation      []AllocationView
-	TopThreeConcentration RatioView
-	HHI                   RatioView
-	ExchangeRates         []ExchangeRateView
-	Warnings              []DataWarningView
+	CalculatedAt              string
+	BaseCurrency              string
+	NetMarketValue            MoneyView
+	GrossExposure             MoneyView
+	TotalUnrealizedPnL        MoneyView
+	LargestPositions          []PositionWeightView
+	CurrencyAllocation        []AllocationView
+	AssetClassAllocation      []AllocationView
+	SectorAllocation          []AllocationView
+	TopThreeConcentration     RatioView
+	HHI                       RatioView
+	ExchangeRates             []ExchangeRateView
+	Warnings                  []DataWarningView
+	EffectiveSecurityExposure []EffectiveExposureView
+	EffectiveSectorAllocation []AllocationView
+	FundLookThrough           []FundLookThroughView
+	EffectiveExposureComplete bool
 }
 
 type PortfolioView struct {
@@ -392,20 +426,60 @@ func toRatioView(ratio analytics.Ratio) RatioView {
 // toAnalyticsView maps the complete analytics result into Wails-safe view models.
 func toAnalyticsView(result analytics.Result) AnalyticsView {
 	return AnalyticsView{
-		CalculatedAt:          result.CalculatedAt.Format(time.RFC3339),
-		BaseCurrency:          result.BaseCurrency,
-		NetMarketValue:        toMoneyView(result.NetMarketValue),
-		GrossExposure:         toMoneyView(result.GrossExposure),
-		TotalUnrealizedPnL:    toMoneyView(result.TotalUnrealizedPnL),
-		LargestPositions:      toPositionWeightViews(result.LargestPositions),
-		CurrencyAllocation:    toAllocationViews(result.CurrencyAllocation),
-		AssetClassAllocation:  toAllocationViews(result.AssetClassAllocation),
-		SectorAllocation:      toAllocationViews(result.SectorAllocation),
-		TopThreeConcentration: toRatioView(result.TopThreeConcentration),
-		HHI:                   toRatioView(result.HHI),
-		ExchangeRates:         toExchangeRateViews(result.ExchangeRates),
-		Warnings:              toWarningViews(result.Warnings),
+		CalculatedAt:              result.CalculatedAt.Format(time.RFC3339),
+		BaseCurrency:              result.BaseCurrency,
+		NetMarketValue:            toMoneyView(result.NetMarketValue),
+		GrossExposure:             toMoneyView(result.GrossExposure),
+		TotalUnrealizedPnL:        toMoneyView(result.TotalUnrealizedPnL),
+		LargestPositions:          toPositionWeightViews(result.LargestPositions),
+		CurrencyAllocation:        toAllocationViews(result.CurrencyAllocation),
+		AssetClassAllocation:      toAllocationViews(result.AssetClassAllocation),
+		SectorAllocation:          toAllocationViews(result.SectorAllocation),
+		TopThreeConcentration:     toRatioView(result.TopThreeConcentration),
+		HHI:                       toRatioView(result.HHI),
+		ExchangeRates:             toExchangeRateViews(result.ExchangeRates),
+		Warnings:                  toWarningViews(result.Warnings),
+		EffectiveSecurityExposure: toEffectiveExposureViews(result.EffectiveSecurityExposure),
+		EffectiveSectorAllocation: toAllocationViews(result.EffectiveSectorAllocation),
+		FundLookThrough:           toFundLookThroughViews(result.FundLookThrough),
+		EffectiveExposureComplete: result.EffectiveExposureComplete,
 	}
+}
+
+func toEffectiveExposureViews(exposures []analytics.EffectiveExposure) []EffectiveExposureView {
+	views := make([]EffectiveExposureView, 0, len(exposures))
+	for _, exposure := range exposures {
+		views = append(views, EffectiveExposureView{
+			MetricID: exposure.MetricID, SecurityID: exposure.SecurityID, Symbol: exposure.Symbol,
+			Name: exposure.Name, Sector: exposure.Sector, MarketValue: toMoneyView(exposure.MarketValue),
+			Exposure: toMoneyView(exposure.Exposure), Weight: toRatioView(exposure.Weight),
+		})
+	}
+	return views
+}
+
+func toFundLookThroughViews(results []portfolio.FundHoldings) []FundLookThroughView {
+	views := make([]FundLookThroughView, 0, len(results))
+	for _, result := range results {
+		views = append(views, FundLookThroughView{
+			FundSymbol: result.Fund.Symbol, FundName: result.Fund.Name, Available: result.Available,
+			Complete: result.Complete, SourceURL: result.SourceURL, SourceType: result.SourceType,
+			RetrievedAt: formatOptionalTime(result.RetrievedAt), ExpiresAt: formatOptionalTime(result.ExpiresAt),
+			EffectiveDate: formatOptionalTime(result.EffectiveDate), CoveragePercentage: result.CoveragePercentage.Value,
+			CoverageAvailable: result.CoveragePercentage.Available, TopHoldingsOnly: result.TopHoldingsOnly,
+			CurrencyAssumptions:       append([]string(nil), result.CurrencyAssumptions...),
+			ClassificationAssumptions: append([]string(nil), result.ClassificationAssumptions...),
+			Warnings:                  append([]string(nil), result.Warnings...), Confidence: result.Confidence,
+		})
+	}
+	return views
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func toExchangeRateViews(rates []portfolio.ExchangeRate) []ExchangeRateView {

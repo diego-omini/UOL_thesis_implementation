@@ -34,6 +34,42 @@ type Instrument struct {
 	Industry   string
 }
 
+// FundHolding is one issuer-reported constituent normalized independently from broker DTOs.
+type FundHolding struct {
+	SecurityID string
+	Symbol     string
+	Name       string
+	AssetClass string
+	Sector     string
+	Currency   string
+	Weight     float64
+}
+
+// Percentage records an optional percentage without treating zero as unavailable.
+type Percentage struct {
+	Value     float64
+	Available bool
+}
+
+// FundHoldings records normalized holdings and the provenance needed to assess their quality.
+type FundHoldings struct {
+	Fund                      Instrument
+	Available                 bool
+	Complete                  bool
+	SourceURL                 string
+	SourceType                string
+	RetrievedAt               time.Time
+	ExpiresAt                 time.Time
+	EffectiveDate             time.Time
+	CoveragePercentage        Percentage
+	TopHoldingsOnly           bool
+	CurrencyAssumptions       []string
+	ClassificationAssumptions []string
+	Warnings                  []string
+	Confidence                string
+	Holdings                  []FundHolding
+}
+
 // InstrumentSearchResult identifies a stock returned by a broker instrument search.
 type InstrumentSearchResult struct {
 	ContractID int64
