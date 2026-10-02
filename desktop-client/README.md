@@ -2,7 +2,7 @@
 
 The application starts and monitors a local Interactive Brokers Client Portal Gateway, verifies that its authenticated session is for paper trading, retrieves the account summary and all open positions, calculates portfolio allocation and concentration metrics, and can request read-only portfolio or stock research from a local Ollama model. A selected stock can also be analyzed and traded manually through a validated IBKR what-if preview and explicit confirmation flow.
 
-Only paper trading is within scope. The current version uses the first account returned by the gateway.
+Only paper trading is within scope. The current version uses the first account in the order returned by `/portfolio/accounts`; it does not provide an account selector.
 
 ## Requirements
 
@@ -30,6 +30,8 @@ Start the application and select the extracted `clientportal.gw` directory when 
 When the gateway is unavailable, the application starts it in the background. Select **Log in to IBKR** to open the IBKR-hosted gateway page in the system browser, accept the local certificate warning if required, and authenticate with the paper-trading account. The dashboard opens automatically after the gateway reports an authenticated paper session.
 
 IBKR requires browser authentication at least daily and does not support automated Client Portal Gateway login. While the application is open, it sends a keep-alive request approximately once per minute to avoid the shorter inactivity timeout. Use **Log out** to explicitly end the gateway session.
+
+The browser SSO session and the brokerage session are separate. If the brokerage session expires while browser SSO remains valid, the application attempts a non-competing initialization first. It supplies `compete: true` only when IBKR explicitly requires that capability and reports no competing session. A browser login is still required when IBKR does not re-establish the brokerage connection.
 
 ## Run the application
 
@@ -83,6 +85,8 @@ The portfolio resume receives normalized positions and deterministic concentrati
 ## Analytics
 
 Portfolio-wide calculations use the account base currency. IBKR base-currency position values are used when available. Otherwise, local-currency values are converted using the account-relative exchange rates returned by `/portfolio/{accountId}/ledger`. Original position values remain in their reported currencies, and the dashboard shows the conversion rate, source, and timestamp. Metrics that require an unavailable conversion rate are marked unavailable.
+
+Normal paper-account responses may omit `baseMktValue`, `baseUnrealizedPnl`, and position `pageSize`. The application continues pagination until an empty page when page metadata is absent and uses ledger conversion when direct base values are unavailable.
 
 Position and allocation weights use absolute market exposure, so short positions do not cancel long positions. The concentration index is the sum of squared position weights and ranges from values near zero for broadly distributed portfolios to one for a single-position portfolio.
 
@@ -143,10 +147,11 @@ The command records the Ollama version and installed model digest, writes a time
 - **Competing session:** sign out of another active IBKR brokerage session or wait for that session to end, then authenticate again.
 - **Live account session:** log out and authenticate with the paper-trading username; the application refuses access when IBKR does not report `isPaper: true`.
 - **Session expired:** the application returns to the authentication page; log in again and the portfolio reloads automatically.
+- **Market-data fields unavailable:** snapshot bid, ask, or reference fields depend on the username's market-data permissions and may be unavailable even when historical bars are returned. The application keeps those fields explicitly unavailable rather than inferring values.
 
 ## Current limitations
 
-- The first account returned by `/portfolio/accounts` is used.
+- The first account in the order returned by `/portfolio/accounts` is used.
 - Account selection is not yet exposed in the interface.
 - The application depends on IBKR's locally installed gateway and mandatory browser authentication.
 - Sanitized portfolio snapshots are persisted, but historical aggregation and a portfolio-history view are not implemented.

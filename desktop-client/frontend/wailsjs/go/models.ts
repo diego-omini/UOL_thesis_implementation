@@ -1,13 +1,13 @@
 export namespace main {
-
+	
 	export class CounselorLimitationView {
 	    Statement: string;
 	    FactIDs: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CounselorLimitationView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Statement = source["Statement"];
@@ -17,11 +17,11 @@ export namespace main {
 	export class CitationView {
 	    Title: string;
 	    URL: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CitationView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Title = source["Title"];
@@ -32,11 +32,11 @@ export namespace main {
 	    FactID: string;
 	    Value: number;
 	    Unit: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ReportedValueView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.FactID = source["FactID"];
@@ -54,11 +54,11 @@ export namespace main {
 	    Limitations: string[];
 	    Explanation: string;
 	    Citations: CitationView[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CounselorObservationView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Category = source["Category"];
@@ -71,7 +71,7 @@ export namespace main {
 	        this.Explanation = source["Explanation"];
 	        this.Citations = this.convertValues(source["Citations"], CitationView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -95,11 +95,11 @@ export namespace main {
 	    Summary: string;
 	    Observations: CounselorObservationView[];
 	    Limitations: CounselorLimitationView[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CounselorResponseView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.SchemaVersion = source["SchemaVersion"];
@@ -107,7 +107,7 @@ export namespace main {
 	        this.Observations = this.convertValues(source["Observations"], CounselorObservationView);
 	        this.Limitations = this.convertValues(source["Limitations"], CounselorLimitationView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -134,11 +134,11 @@ export namespace main {
 	    Model: string;
 	    PromptID: string;
 	    PromptVersion: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AIResponseView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Text = source["Text"];
@@ -149,7 +149,7 @@ export namespace main {
 	        this.PromptID = source["PromptID"];
 	        this.PromptVersion = source["PromptVersion"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -172,11 +172,11 @@ export namespace main {
 	    Amount: number;
 	    Currency: string;
 	    Available: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MoneyView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Amount = source["Amount"];
@@ -188,18 +188,18 @@ export namespace main {
 	    AccountID: string;
 	    NetLiquidation: MoneyView;
 	    CashBalance: MoneyView;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AccountSummaryView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.AccountID = source["AccountID"];
 	        this.NetLiquidation = this.convertValues(source["NetLiquidation"], MoneyView);
 	        this.CashBalance = this.convertValues(source["CashBalance"], MoneyView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -221,11 +221,11 @@ export namespace main {
 	export class RatioView {
 	    Value: number;
 	    Available: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RatioView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Value = source["Value"];
@@ -237,11 +237,11 @@ export namespace main {
 	    MarketValue: MoneyView;
 	    Exposure: MoneyView;
 	    Weight: RatioView;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AllocationView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Label = source["Label"];
@@ -249,7 +249,7 @@ export namespace main {
 	        this.Exposure = this.convertValues(source["Exposure"], MoneyView);
 	        this.Weight = this.convertValues(source["Weight"], RatioView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -285,11 +285,11 @@ export namespace main {
 	    ClassificationAssumptions: string[];
 	    Warnings: string[];
 	    Confidence: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FundLookThroughView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.FundSymbol = source["FundSymbol"];
@@ -319,11 +319,11 @@ export namespace main {
 	    MarketValue: MoneyView;
 	    Exposure: MoneyView;
 	    Weight: RatioView;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new EffectiveExposureView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.MetricID = source["MetricID"];
@@ -335,7 +335,7 @@ export namespace main {
 	        this.Exposure = this.convertValues(source["Exposure"], MoneyView);
 	        this.Weight = this.convertValues(source["Weight"], RatioView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -358,11 +358,11 @@ export namespace main {
 	    Code: string;
 	    Message: string;
 	    Count: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DataWarningView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Code = source["Code"];
@@ -377,11 +377,11 @@ export namespace main {
 	    Available: boolean;
 	    Source: string;
 	    AsOf: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ExchangeRateView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Currency = source["Currency"];
@@ -398,11 +398,11 @@ export namespace main {
 	    Name: string;
 	    MarketValue: MoneyView;
 	    Weight: RatioView;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PositionWeightView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ContractID = source["ContractID"];
@@ -411,7 +411,7 @@ export namespace main {
 	        this.MarketValue = this.convertValues(source["MarketValue"], MoneyView);
 	        this.Weight = this.convertValues(source["Weight"], RatioView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -448,11 +448,11 @@ export namespace main {
 	    EffectiveSectorAllocation: AllocationView[];
 	    FundLookThrough: FundLookThroughView[];
 	    EffectiveExposureComplete: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AnalyticsView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.CalculatedAt = source["CalculatedAt"];
@@ -473,7 +473,7 @@ export namespace main {
 	        this.FundLookThrough = this.convertValues(source["FundLookThrough"], FundLookThroughView);
 	        this.EffectiveExposureComplete = source["EffectiveExposureComplete"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -492,39 +492,39 @@ export namespace main {
 		    return a;
 		}
 	}
-
+	
 	export class ConnectionStatusView {
 	    Connected: boolean;
 	    Message: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionStatusView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Connected = source["Connected"];
 	        this.Message = source["Message"];
 	    }
 	}
-
-
-
-
-
-
-
+	
+	
+	
+	
+	
+	
+	
 	export class InstrumentSearchResultView {
 	    ContractID: number;
 	    Symbol: string;
 	    Name: string;
 	    Exchange: string;
 	    AssetClass: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new InstrumentSearchResultView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ContractID = source["ContractID"];
@@ -543,11 +543,11 @@ export namespace main {
 	    Currency: string;
 	    Sector: string;
 	    Industry: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new InstrumentView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ContractID = source["ContractID"];
@@ -560,16 +560,16 @@ export namespace main {
 	        this.Industry = source["Industry"];
 	    }
 	}
-
+	
 	export class OptionalNumberView {
 	    Value: number;
 	    Available: boolean;
 	    UnavailableReason: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new OptionalNumberView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Value = source["Value"];
@@ -591,11 +591,11 @@ export namespace main {
 	    CurrentPosition: number;
 	    ResultingPosition: number;
 	    Warnings: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new OrderPreviewView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Token = source["Token"];
@@ -612,7 +612,7 @@ export namespace main {
 	        this.ResultingPosition = source["ResultingPosition"];
 	        this.Warnings = source["Warnings"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -636,11 +636,11 @@ export namespace main {
 	    Status: string;
 	    WarningToken: string;
 	    WarningMessages: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new OrderResultView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.OrderID = source["OrderID"];
@@ -659,11 +659,11 @@ export namespace main {
 	    UnrealizedPnL: MoneyView;
 	    BaseUnrealizedPnL: MoneyView;
 	    PortfolioWeight: RatioView;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PositionView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Instrument = this.convertValues(source["Instrument"], InstrumentView);
@@ -676,7 +676,7 @@ export namespace main {
 	        this.BaseUnrealizedPnL = this.convertValues(source["BaseUnrealizedPnL"], MoneyView);
 	        this.PortfolioWeight = this.convertValues(source["PortfolioWeight"], RatioView);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -700,11 +700,11 @@ export namespace main {
 	    Positions: PositionView[];
 	    Analytics: AnalyticsView;
 	    Empty: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PortfolioView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.AccountSummary = this.convertValues(source["AccountSummary"], AccountSummaryView);
@@ -712,7 +712,7 @@ export namespace main {
 	        this.Analytics = this.convertValues(source["Analytics"], AnalyticsView);
 	        this.Empty = source["Empty"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -731,10 +731,10 @@ export namespace main {
 		    return a;
 		}
 	}
-
-
-
-
+	
+	
+	
+	
 	export class SessionStatusView {
 	    State: string;
 	    GatewayReachable: boolean;
@@ -745,11 +745,11 @@ export namespace main {
 	    PaperKnown: boolean;
 	    Ready: boolean;
 	    Message: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SessionStatusView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.State = source["State"];
@@ -770,11 +770,11 @@ export namespace main {
 	    Low: number;
 	    Close: number;
 	    Volume: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new StockHistoryPointView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Time = source["Time"];
@@ -791,11 +791,11 @@ export namespace main {
 	    MarketDataStatus: string;
 	    DelaySeconds: number;
 	    UnavailableReason: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new StockHistoryView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Range = source["Range"];
@@ -804,7 +804,7 @@ export namespace main {
 	        this.DelaySeconds = source["DelaySeconds"];
 	        this.UnavailableReason = source["UnavailableReason"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -835,11 +835,11 @@ export namespace main {
 	    Low52Week: OptionalNumberView;
 	    MarketDataStatus: string;
 	    AsOf: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new StockSnapshotView(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Instrument = this.convertValues(source["Instrument"], InstrumentView);
@@ -854,7 +854,7 @@ export namespace main {
 	        this.MarketDataStatus = source["MarketDataStatus"];
 	        this.AsOf = source["AsOf"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;

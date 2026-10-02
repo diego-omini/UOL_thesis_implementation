@@ -1,0 +1,8 @@
+{
+  "authenticated": false,
+  "connected": true,
+  "established": false,
+  "competing": false,
+  "fail": "Force compete capability must be used together with compete flag",
+  "message": ""
+}

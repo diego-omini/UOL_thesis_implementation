@@ -7,10 +7,65 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 	"wails/broker"
 )
+
+func readNormalPaperFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.Join("testdata", "normal-paper", name))
+	if err != nil {
+		t.Fatalf("read normal-paper fixture %s: %v", name, err)
+	}
+	return contents
+}
+
+func TestNormalPaperReadFixturesMapMissingBaseValuesAndEmptyPagePagination(t *testing.T) {
+	requestedPageOne := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/portfolio/accounts":
+			_, _ = w.Write([]byte(`[{"accountId":"SANITIZED","currency":"GBP"}]`))
+		case "/portfolio/SANITIZED/summary":
+			_, _ = w.Write(readNormalPaperFixture(t, "account-summary.json"))
+		case "/portfolio/SANITIZED/ledger":
+			_, _ = w.Write(readNormalPaperFixture(t, "ledger.json"))
+		case "/portfolio/SANITIZED/positions/0":
+			_, _ = w.Write(readNormalPaperFixture(t, "positions-page-0.json"))
+		case "/portfolio/SANITIZED/positions/1":
+			requestedPageOne = true
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	result, err := NewClient(server.URL, false).FetchPortfolio(context.Background())
+	if err != nil {
+		t.Fatalf("FetchPortfolio() returned an error: %v", err)
+	}
+	if !requestedPageOne {
+		t.Fatal("FetchPortfolio() did not request the empty terminal page when pageSize was omitted")
+	}
+	if !result.AccountSummary.NetLiquidation.Available || !result.AccountSummary.CashBalance.Available {
+		t.Fatalf("summary values were not mapped: %#v", result.AccountSummary)
+	}
+	if len(result.Positions) != 1 || result.Positions[0].Instrument.Currency != "USD" {
+		t.Fatalf("unexpected positions: %#v", result.Positions)
+	}
+	if result.Positions[0].BaseMarketValue.Available || result.Positions[0].BaseUnrealizedPnL.Available {
+		t.Fatalf("missing base values were reported as available: %#v", result.Positions[0])
+	}
+	if len(result.ExchangeRates) != 2 || result.ExchangeRates[0].Currency != "GBP" || result.ExchangeRates[1].Currency != "USD" {
+		t.Fatalf("unexpected normalized ledger rates: %#v", result.ExchangeRates)
+	}
+}
 
 func TestFetchPortfolioDoesNotRequireTradingSession(t *testing.T) {
 	requestedPaths := make([]string, 0, 4)
@@ -142,6 +197,32 @@ func TestSearchStocksIncludesCompanyNameMatches(t *testing.T) {
 	}
 }
 
+func TestSearchStocksPreservesBrokerOrderForEquallyRankedExactListings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("name") == "true" {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write(readNormalPaperFixture(t, "security-search-aapl.json"))
+	}))
+	defer server.Close()
+
+	results, err := NewClient(server.URL, false).SearchStocks(context.Background(), "AAPL")
+	if err != nil {
+		t.Fatalf("SearchStocks() returned an error: %v", err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("SearchStocks() returned %d results, want 4", len(results))
+	}
+	wantExchanges := []string{"NASDAQ", "TSE", "MEXI", "EBS"}
+	for index, want := range wantExchanges {
+		if results[index].Exchange != want {
+			t.Fatalf("result exchanges = %#v, want broker order %#v", results, wantExchanges)
+		}
+	}
+}
+
 func TestFetchStockSnapshotMapsQuoteFieldsAfterPreflight(t *testing.T) {
 	snapshotCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -262,6 +343,45 @@ func TestPreviewOrderMapsWhatIfEstimate(t *testing.T) {
 	}
 	if preview.Total.Amount != 201.2 || preview.Total.Currency != "USD" || preview.ResultingPosition != 7 || len(preview.Warnings) != 1 {
 		t.Fatalf("unexpected preview: %#v", preview)
+	}
+}
+
+func TestPreviewOrderMapsObservedNullWarningAndError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/iserver/marketdata/snapshot" {
+			_, _ = w.Write([]byte(`[{}]`))
+			return
+		}
+		if r.URL.Path == "/iserver/account/SANITIZED/orders/whatif" {
+			_, _ = w.Write(readNormalPaperFixture(t, "whatif.json"))
+			return
+		}
+		http.Error(w, "unexpected request", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	preview, err := NewClient(server.URL, false).PreviewOrder(context.Background(), "SANITIZED", broker.MarketOrder{ContractID: 1001, Side: broker.OrderSideBuy, Quantity: 1})
+	if err != nil {
+		t.Fatalf("PreviewOrder() returned an error: %v", err)
+	}
+	if len(preview.Warnings) != 0 || preview.Total.Currency != "USD" || preview.ResultingPosition != 1 {
+		t.Fatalf("unexpected observed what-if mapping: %#v", preview)
+	}
+}
+
+func TestGatewayHTTPErrorIncludesJSONMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"  Invalid   order request.  "}`))
+	}))
+	defer server.Close()
+
+	var response any
+	err := NewClient(server.URL, false).getJSON(context.Background(), "/test", &response)
+	if err == nil || !strings.Contains(err.Error(), "gateway returned HTTP 400: Invalid order request.") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -461,6 +581,54 @@ func TestCheckSessionUsesCompeteOnlyWhenGatewayRequiresIt(t *testing.T) {
 	}
 	if initCalls != 1 {
 		t.Fatalf("brokerage initialization calls = %d, want 1", initCalls)
+	}
+}
+
+func TestCheckSessionRetriesWithCompeteWhenRequirementAppearsAfterInitialization(t *testing.T) {
+	statusCalls := 0
+	initCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/sso/validate":
+			_, _ = w.Write([]byte(`{"RESULT":true,"LOGIN_TYPE":2}`))
+		case "/iserver/auth/status":
+			statusCalls++
+			if statusCalls == 1 {
+				_, _ = w.Write(readNormalPaperFixture(t, "auth-expired.json"))
+				return
+			}
+			_, _ = w.Write(readNormalPaperFixture(t, "auth-force-required.json"))
+		case "/iserver/auth/ssodh/init":
+			initCalls++
+			var request brokerageSessionInitRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if !request.Publish || request.Compete != (initCalls == 2) {
+				http.Error(w, "unexpected brokerage initialization options", http.StatusBadRequest)
+				return
+			}
+			if initCalls == 1 {
+				_, _ = w.Write(readNormalPaperFixture(t, "auth-expired.json"))
+				return
+			}
+			_, _ = w.Write([]byte(`{"authenticated":true,"connected":true,"established":true,"competing":false}`))
+		case "/iserver/accounts":
+			_, _ = w.Write([]byte(`{"isPaper":true}`))
+		default:
+			http.Error(w, "unexpected request", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	status := NewClient(server.URL, false).CheckSession(context.Background())
+	if !status.Ready() {
+		t.Fatalf("session was not ready after guarded compete retry: %#v", status)
+	}
+	if initCalls != 2 {
+		t.Fatalf("brokerage initialization calls = %d, want 2", initCalls)
 	}
 }
 

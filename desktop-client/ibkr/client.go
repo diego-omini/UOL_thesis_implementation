@@ -66,9 +66,13 @@ type logoutResponse struct {
 
 type httpStatusError struct {
 	statusCode int
+	message    string
 }
 
 func (e httpStatusError) Error() string {
+	if e.message != "" {
+		return fmt.Sprintf("gateway returned HTTP %d: %s", e.statusCode, e.message)
+	}
 	return fmt.Sprintf("gateway returned HTTP %d", e.statusCode)
 }
 
@@ -306,14 +310,21 @@ func (c *Client) CheckSession(ctx context.Context) broker.SessionStatus {
 	}
 
 	if !brokerageSessionReady(authentication) && !authentication.Competing {
+		forceCompetition := requiresForcedCompetition(authentication.Fail)
 		initialized, err := c.initializeBrokerageSession(
 			ctx,
-			requiresForcedCompetition(authentication.Fail),
+			forceCompetition,
 		)
 		if err != nil {
 			return sessionRequestFailure(err, "IBKR brokerage session initialization failed")
 		}
 		authentication = initialized
+		if !forceCompetition && !authentication.Competing && requiresForcedCompetition(authentication.Fail) {
+			authentication, err = c.initializeBrokerageSession(ctx, true)
+			if err != nil {
+				return sessionRequestFailure(err, "IBKR brokerage session initialization failed")
+			}
+		}
 	}
 
 	if authentication.Competing {
@@ -400,6 +411,9 @@ func (c *Client) initializeBrokerageSession(ctx context.Context, compete bool) (
 	if brokerageSessionReady(status) || status.Competing {
 		return status, nil
 	}
+	if !compete && requiresForcedCompetition(status.Fail) {
+		return status, nil
+	}
 
 	pollCtx, cancel := context.WithTimeout(ctx, brokerageSessionInitializationTimeout)
 	defer cancel()
@@ -417,7 +431,7 @@ func (c *Client) initializeBrokerageSession(ctx context.Context, compete bool) (
 				}
 				return authStatusResponse{}, err
 			}
-			if brokerageSessionReady(status) || status.Competing {
+			if brokerageSessionReady(status) || status.Competing || (!compete && requiresForcedCompetition(status.Fail)) {
 				return status, nil
 			}
 		}
@@ -567,7 +581,7 @@ func (c *Client) SearchStocks(ctx context.Context, query string) ([]portfolio.In
 		if results[i].Symbol != results[j].Symbol {
 			return results[i].Symbol < results[j].Symbol
 		}
-		return results[i].Exchange < results[j].Exchange
+		return false
 	})
 	if len(results) > 8 {
 		results = results[:8]
@@ -1134,7 +1148,14 @@ func (c *Client) requestJSON(ctx context.Context, method, path string, body, tar
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return httpStatusError{statusCode: resp.StatusCode}
+		contents, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		if readErr != nil {
+			return httpStatusError{statusCode: resp.StatusCode}
+		}
+		return httpStatusError{
+			statusCode: resp.StatusCode,
+			message:    gatewayErrorMessage(contents),
+		}
 	}
 
 	if target == nil {
@@ -1146,6 +1167,47 @@ func (c *Client) requestJSON(ctx context.Context, method, path string, body, tar
 	}
 
 	return nil
+}
+
+// gatewayErrorMessage extracts a bounded human-readable error from IBKR's non-success response variants.
+func gatewayErrorMessage(contents []byte) string {
+	var response struct {
+		Error   json.RawMessage `json:"error"`
+		Message json.RawMessage `json:"message"`
+	}
+	if json.Unmarshal(contents, &response) == nil {
+		if message := rawErrorMessage(response.Error); message != "" {
+			return message
+		}
+		if message := rawErrorMessage(response.Message); message != "" {
+			return message
+		}
+	}
+	return ""
+}
+
+func rawErrorMessage(value json.RawMessage) string {
+	if len(value) == 0 || string(value) == "null" {
+		return ""
+	}
+	var message string
+	if json.Unmarshal(value, &message) == nil {
+		return boundedErrorMessage(message)
+	}
+	var messages []string
+	if json.Unmarshal(value, &messages) == nil {
+		return boundedErrorMessage(strings.Join(messages, "; "))
+	}
+	return ""
+}
+
+func boundedErrorMessage(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	const maximumLength = 512
+	if len(message) > maximumLength {
+		return message[:maximumLength] + "..."
+	}
+	return message
 }
 
 // mapPosition converts an IBKR position response into the broker-independent domain model.

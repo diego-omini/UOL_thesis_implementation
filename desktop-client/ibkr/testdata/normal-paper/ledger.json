@@ -1,0 +1,23 @@
+{
+  "BASE": {
+    "currency": "BASE",
+    "exchangerate": 1,
+    "timestamp": 1790899200,
+    "cashbalance": 2500.5,
+    "netliquidationvalue": 12500.25
+  },
+  "GBP": {
+    "currency": "GBP",
+    "exchangerate": 1,
+    "timestamp": 1790899200,
+    "cashbalance": 2500.5,
+    "netliquidationvalue": 12500.25
+  },
+  "USD": {
+    "currency": "USD",
+    "exchangerate": 0.75,
+    "timestamp": 1790899200,
+    "cashbalance": 0,
+    "netliquidationvalue": 0
+  }
+}

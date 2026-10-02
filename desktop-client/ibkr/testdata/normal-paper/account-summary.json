@@ -1,0 +1,18 @@
+{
+  "netliquidation": {
+    "amount": 12500.25,
+    "currency": "GBP",
+    "isNull": false,
+    "severity": 0,
+    "timestamp": 1790899200000,
+    "value": "12500.25"
+  },
+  "totalcashvalue": {
+    "amount": 2500.5,
+    "currency": "GBP",
+    "isNull": false,
+    "severity": 0,
+    "timestamp": 1790899200000,
+    "value": "2500.50"
+  }
+}

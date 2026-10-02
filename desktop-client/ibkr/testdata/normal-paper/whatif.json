@@ -1,0 +1,29 @@
+{
+  "amount": {
+    "amount": "100.00 USD (1 Share)",
+    "commission": "1 USD",
+    "total": "101.00 USD"
+  },
+  "equity": {
+    "current": "10000",
+    "change": "-1",
+    "after": "9999"
+  },
+  "initial": {
+    "current": "1000",
+    "change": "25",
+    "after": "1025"
+  },
+  "maintenance": {
+    "current": "900",
+    "change": "20",
+    "after": "920"
+  },
+  "position": {
+    "current": "0",
+    "change": "1",
+    "after": "1"
+  },
+  "warn": null,
+  "error": null
+}

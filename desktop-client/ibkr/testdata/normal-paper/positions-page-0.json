@@ -1,0 +1,19 @@
+[
+  {
+    "conid": 1001,
+    "ticker": "SAMPLE",
+    "contractDesc": "SANITIZED SAMPLE POSITION",
+    "name": "SANITIZED SAMPLE POSITION",
+    "assetClass": "STK",
+    "listingExchange": "NYSE",
+    "currency": "USD",
+    "sector": "Technology",
+    "sectorGroup": "Software",
+    "position": 2,
+    "avgCost": 100,
+    "avgPrice": 100,
+    "mktPrice": 110,
+    "mktValue": 220,
+    "unrealizedPnl": 20
+  }
+]

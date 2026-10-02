@@ -1,0 +1,30 @@
+[
+  {
+    "conid": "1001",
+    "symbol": "AAPL",
+    "companyName": "APPLE INC",
+    "description": "NASDAQ",
+    "sections": [{"secType": "STK"}]
+  },
+  {
+    "conid": "1002",
+    "symbol": "AAPL",
+    "companyName": "APPLE INC-CDR",
+    "description": "TSE",
+    "sections": [{"secType": "STK"}]
+  },
+  {
+    "conid": "1003",
+    "symbol": "AAPL",
+    "companyName": "APPLE INC",
+    "description": "MEXI",
+    "sections": [{"secType": "STK"}]
+  },
+  {
+    "conid": "1004",
+    "symbol": "AAPL",
+    "companyName": "APPLE INC",
+    "description": "EBS",
+    "sections": [{"secType": "STK"}]
+  }
+]
