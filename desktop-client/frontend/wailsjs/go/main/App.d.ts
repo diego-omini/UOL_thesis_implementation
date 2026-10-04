@@ -8,13 +8,29 @@ export function ChooseGatewayDirectory():Promise<main.SessionStatusView>;
 
 export function ConfirmOrder(arg1:string):Promise<main.OrderResultView>;
 
+export function GetCurrencyExposureAnalysis():Promise<main.AIResponseView>;
+
+export function GetDiversificationAnalysis():Promise<main.AIResponseView>;
+
 export function GetOrderAnalysis(arg1:number,arg2:string,arg3:number):Promise<main.AIResponseView>;
 
 export function GetPortfolio():Promise<main.PortfolioView>;
 
+export function GetPortfolioDataQualityAudit():Promise<main.AIResponseView>;
+
+export function GetPortfolioHistory(arg1:string):Promise<main.PortfolioHistoryView>;
+
+export function GetPortfolioHistorySummary(arg1:string):Promise<main.AIResponseView>;
+
 export function GetPortfolioNews():Promise<main.AIResponseView>;
 
 export function GetPortfolioResume():Promise<main.AIResponseView>;
+
+export function GetPortfolioRiskAnalysis():Promise<main.PortfolioRiskAnalysisView>;
+
+export function GetPortfolioRiskCounsel():Promise<main.PortfolioRiskCounselView>;
+
+export function GetPositionRiskAnalysis(arg1:number):Promise<main.AIResponseView>;
 
 export function GetSessionStatus():Promise<main.SessionStatusView>;
 
@@ -31,6 +47,8 @@ export function KeepSessionAlive():Promise<main.SessionStatusView>;
 export function Logout():Promise<main.SessionStatusView>;
 
 export function OpenIBKRLogin():Promise<void>;
+
+export function OpenPortfolioHistoryConnection():Promise<void>;
 
 export function PreviewOrder(arg1:number,arg2:string,arg3:number):Promise<main.OrderPreviewView>;
 

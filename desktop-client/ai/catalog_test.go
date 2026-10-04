@@ -69,6 +69,20 @@ func TestEmbeddedCatalogResolvesPortfolioNewsPrompt(t *testing.T) {
 	}
 }
 
+func TestEmbeddedCatalogResolvesPortfolioRiskPrompt(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	definition, err := catalog.resolve(PortfolioRiskPromptAlias)
+	if err != nil {
+		t.Fatalf("resolve returned an error: %v", err)
+	}
+	if definition.ID != PortfolioRiskPromptAlias || definition.Version != 1 || definition.Response.Schema != CounselorResponseSchema || len(definition.Tools) != 0 {
+		t.Fatalf("unexpected prompt definition: %+v", definition)
+	}
+}
+
 func TestEmbeddedCatalogResolvesStockNewsPrompt(t *testing.T) {
 	catalog, err := NewCatalog()
 	if err != nil {

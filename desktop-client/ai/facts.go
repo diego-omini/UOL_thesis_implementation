@@ -12,6 +12,7 @@ import (
 
 	"wails/analytics"
 	"wails/portfolio"
+	"wails/portfolioanalysis"
 	"wails/stockanalysis"
 )
 
@@ -62,6 +63,71 @@ func portfolioResumeFacts(snapshot portfolio.Portfolio, result analytics.Result)
 			ID: "warning." + stableFactSegment(warning.Code), Kind: string(CategoryUnavailableInformation),
 			Label: "Data-quality warning", TextValue: warning.Message + warningCountSuffix(warning.Count),
 			Available: false, Limitation: warning.Message, RequiredLimitation: true,
+		})
+	}
+	return facts
+}
+
+// portfolioRiskFacts exposes calculated risk, contribution, correlation, and scenario values verbatim.
+func portfolioRiskFacts(result portfolioanalysis.Result) []CounselorFact {
+	const maxCorrelations = 12
+
+	facts := []CounselorFact{
+		textFact("risk.analysis_timestamp", CategorySuppliedFact, "Risk calculation timestamp", result.CalculatedAt.UTC().Format(time.RFC3339)),
+		textFact("risk.base_currency", CategoryDeterministicDerivedFact, "Account base currency", result.BaseCurrency),
+		numberFact("risk.history_observations", CategoryDeterministicDerivedFact, "Common daily return observations", float64(result.Observations), "count", 0, 0),
+		numberFact("risk.included_positions", CategoryDeterministicDerivedFact, "Positions included in modeled risk", float64(result.IncludedPositionCount), "count", 0, 0),
+		numberFact("risk.total_positions", CategorySuppliedFact, "Total current positions", float64(result.TotalPositionCount), "count", 0, 0),
+		portfolioRiskMetricFact("risk.modeled_total_return", "Modeled cumulative return", result.ModeledTotalReturn, "percent"),
+		portfolioRiskMetricFact("risk.annualized_volatility", "Annualized volatility", result.AnnualizedVolatility, "percent"),
+		portfolioRiskMetricFact("risk.downside_deviation", "Annualized downside deviation", result.DownsideDeviation, "percent"),
+		portfolioRiskMetricFact("risk.maximum_drawdown", "Maximum drawdown", result.MaximumDrawdown, "percent"),
+		numberFact("risk.correlation_pairs_available", CategoryDeterministicDerivedFact, "Calculated correlation pairs", float64(len(result.Correlations)), "count", 0, 0),
+	}
+	if !result.PeriodStart.IsZero() && !result.PeriodEnd.IsZero() {
+		facts = append(facts,
+			textFact("risk.period_start", CategoryDeterministicDerivedFact, "Modeled period start", result.PeriodStart.UTC().Format(time.RFC3339)),
+			textFact("risk.period_end", CategoryDeterministicDerivedFact, "Modeled period end", result.PeriodEnd.UTC().Format(time.RFC3339)),
+		)
+	}
+	for index, position := range result.Positions {
+		prefix := positionFactPrefix(portfolio.Instrument{ContractID: position.ContractID, Symbol: position.Symbol}, index)
+		facts = append(facts,
+			textFact(prefix+".symbol", CategorySuppliedFact, "Position ticker", position.Symbol),
+			textFact(prefix+".name", CategorySuppliedFact, "Position name", position.Name),
+			numberFact(prefix+".signed_weight", CategoryDeterministicDerivedFact, "Current signed gross-exposure weight", position.SignedWeight*100, "percent", percentAbsoluteTolerance, 0),
+			portfolioRiskMetricFact(prefix+".modeled_total_return", "Position cumulative return", position.TotalReturn, "percent"),
+			portfolioRiskMetricFact(prefix+".modeled_annualized_volatility", "Position annualized volatility", position.AnnualizedVolatility, "percent"),
+			portfolioRiskMetricFact(prefix+".return_contribution", "Arithmetic modeled return contribution", position.ReturnContribution, "percentage_points"),
+			portfolioRiskMetricFact(prefix+".risk_contribution", "Variance-based portfolio risk contribution", position.RiskContribution, "percent"),
+		)
+	}
+	correlations := result.Correlations
+	if len(correlations) > maxCorrelations {
+		correlations = correlations[:maxCorrelations]
+		facts = append(facts, CounselorFact{
+			ID: "warning.portfolio_risk.correlation_coverage", Kind: string(CategoryUnavailableInformation),
+			Label: "Correlation coverage", TextValue: "The counselor received only the 12 strongest absolute correlations.", Available: false,
+			Limitation: "The counselor explanation covers only the 12 strongest absolute correlations.", RequiredLimitation: true,
+		})
+	}
+	for _, correlation := range correlations {
+		id := fmt.Sprintf("correlation.contract_%d.contract_%d", correlation.LeftContractID, correlation.RightContractID)
+		facts = append(facts, numberFact(id, CategoryDeterministicDerivedFact, correlation.LeftSymbol+" and "+correlation.RightSymbol+" return correlation", correlation.Value, "correlation", ratioAbsoluteTolerance, 0))
+	}
+	for _, scenario := range result.Scenarios {
+		prefix := "scenario." + stableFactSegment(scenario.ID)
+		facts = append(facts,
+			textFact(prefix+".description", CategorySuppliedFact, scenario.Name, scenario.Description),
+			moneyFact(prefix+".impact", scenario.Name+" estimated monetary impact", scenario.Impact),
+			portfolioRiskMetricFact(prefix+".impact_ratio", scenario.Name+" impact relative to net liquidation", scenario.ImpactRatio, "percent"),
+		)
+	}
+	for index, warning := range result.Warnings {
+		facts = append(facts, CounselorFact{
+			ID: fmt.Sprintf("warning.portfolio_risk.%d", index+1), Kind: string(CategoryUnavailableInformation),
+			Label: "Portfolio-risk limitation", TextValue: warning, Available: false,
+			Limitation: warning, RequiredLimitation: true,
 		})
 	}
 	return facts
@@ -232,6 +298,16 @@ func ratioFact(id, label string, value analytics.Ratio, unit string) CounselorFa
 }
 
 func stockMetricFact(id, label string, value stockanalysis.Metric, unit string) CounselorFact {
+	if !value.Available {
+		return unavailableFact(id, label, unit, label+" is unavailable.")
+	}
+	if unit == "percent" || unit == "percentage_points" {
+		return numberFact(id, CategoryDeterministicDerivedFact, label, value.Value*100, unit, percentAbsoluteTolerance, 0)
+	}
+	return numberFact(id, CategoryDeterministicDerivedFact, label, value.Value, unit, ratioAbsoluteTolerance, 0)
+}
+
+func portfolioRiskMetricFact(id, label string, value portfolioanalysis.Metric, unit string) CounselorFact {
 	if !value.Available {
 		return unavailableFact(id, label, unit, label+" is unavailable.")
 	}

@@ -10,6 +10,7 @@ import (
 
 	"wails/analytics"
 	"wails/portfolio"
+	"wails/portfolioanalysis"
 	"wails/stockanalysis"
 )
 
@@ -21,6 +22,7 @@ type recordingProvider struct {
 const validStructuredResponse = `{"schema_version":1,"summary":"Structured summary.","observations":[{"category":"general_information","statement":"General context","supporting_fact_ids":[],"reported_values":[],"severity":"informational","confidence":"high","limitations":[],"explanation":"General information only.","citations":[]}],"limitations":[{"statement":"This is general information, not personalized investment advice.","fact_ids":[]}]}`
 
 const validPortfolioResume = validStructuredResponse
+const validPortfolioRisk = validStructuredResponse
 const validPortfolioNews = validStructuredResponse
 const validStockNews = validStructuredResponse
 const validOrderAnalysis = validStructuredResponse
@@ -131,6 +133,111 @@ func TestPortfolioResumeRejectsEmptyPortfolio(t *testing.T) {
 	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
 	if _, err := counselor.PortfolioResume(context.Background(), portfolio.Portfolio{}, analytics.Result{}); err == nil {
 		t.Fatal("expected an empty portfolio error")
+	}
+}
+
+func TestPortfolioRiskExecutesFocusedCatalogPrompt(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	provider := &recordingProvider{responses: []ChatResponse{{
+		Message: Message{Role: "assistant", Content: validPortfolioRisk}, Model: "test-model",
+	}}}
+	counselor := NewCounselor(NewExecutor(catalog, provider), NewResearchToolsFactory(unusedResearchProvider{}, []string{"sec.gov"}, 5))
+	result := portfolioanalysis.Result{
+		CalculatedAt: time.Date(2026, time.October, 4, 12, 0, 0, 0, time.UTC), BaseCurrency: "CHF",
+		PeriodStart: time.Date(2025, time.October, 4, 0, 0, 0, 0, time.UTC), PeriodEnd: time.Date(2026, time.October, 3, 0, 0, 0, 0, time.UTC),
+		Observations: 252, IncludedPositionCount: 2, TotalPositionCount: 2,
+		ModeledTotalReturn: portfolioanalysis.Metric{Value: .08, Available: true}, AnnualizedVolatility: portfolioanalysis.Metric{Value: .16, Available: true},
+		DownsideDeviation: portfolioanalysis.Metric{Value: .1, Available: true}, MaximumDrawdown: portfolioanalysis.Metric{Value: -.12, Available: true},
+		Positions: []portfolioanalysis.PositionResult{{
+			ContractID: 1, Symbol: "AAA", Name: "Alpha", SignedWeight: .6,
+			TotalReturn: portfolioanalysis.Metric{Value: .1, Available: true}, AnnualizedVolatility: portfolioanalysis.Metric{Value: .2, Available: true},
+			ReturnContribution: portfolioanalysis.Metric{Value: .06, Available: true}, RiskContribution: portfolioanalysis.Metric{Value: .7, Available: true},
+		}},
+		Correlations: []portfolioanalysis.Correlation{{LeftContractID: 1, LeftSymbol: "AAA", RightContractID: 2, RightSymbol: "BBB", Value: .35}},
+		Scenarios: []portfolioanalysis.Scenario{{
+			ID: "market_down_10", Name: "Broad market decline", Description: "All modeled instrument prices decline by 10%.",
+			Impact: portfolio.Money{Amount: -100, Currency: "CHF", Available: true}, ImpactRatio: portfolioanalysis.Metric{Value: -.1, Available: true},
+		}},
+	}
+
+	response, err := counselor.PortfolioRisk(context.Background(), result)
+	if err != nil {
+		t.Fatalf("PortfolioRisk returned an error: %v", err)
+	}
+	if response.Text != validPortfolioRisk || response.Structured == nil || response.PromptID != PortfolioRiskPromptAlias || response.PromptVersion != 1 {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	request := provider.requests[0]
+	for _, expected := range []string{
+		"id=risk.annualized_volatility", "id=position.contract_1.risk_contribution",
+		"id=correlation.contract_1.contract_2", "id=scenario.market_down_10.impact_ratio",
+	} {
+		if !strings.Contains(request.Messages[1].Content, expected) {
+			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, request.Messages[1].Content)
+		}
+	}
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || len(request.Tools) != 0 || request.ResponseSchema == nil {
+		t.Fatalf("unexpected portfolio-risk request: %+v", request)
+	}
+}
+
+func TestPortfolioRiskRejectsInsufficientHistory(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatalf("NewCatalog returned an error: %v", err)
+	}
+	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
+	if _, err := counselor.PortfolioRisk(context.Background(), portfolioanalysis.Result{Observations: 19, IncludedPositionCount: 1}); err == nil {
+		t.Fatal("expected insufficient-history error")
+	}
+}
+
+func TestPortfolioRiskFactsPreservePercentUnitsAndRequiredLimitations(t *testing.T) {
+	facts := portfolioRiskFacts(portfolioanalysis.Result{
+		CalculatedAt: time.Now(), BaseCurrency: "CHF", Observations: 20, IncludedPositionCount: 1, TotalPositionCount: 2,
+		AnnualizedVolatility: portfolioanalysis.Metric{Value: .125, Available: true},
+		Warnings:             []string{"One position lacked sufficient history."},
+	})
+	var volatility, warning *CounselorFact
+	for index := range facts {
+		switch facts[index].ID {
+		case "risk.annualized_volatility":
+			volatility = &facts[index]
+		case "warning.portfolio_risk.1":
+			warning = &facts[index]
+		}
+	}
+	if volatility == nil || volatility.NumericValue == nil || *volatility.NumericValue != 12.5 || volatility.Unit != "percent" {
+		t.Fatalf("unexpected volatility fact: %+v", volatility)
+	}
+	if warning == nil || warning.Available || !warning.RequiredLimitation || warning.Limitation == "" {
+		t.Fatalf("unexpected warning fact: %+v", warning)
+	}
+}
+
+func TestPortfolioRiskFactsBoundCorrelationContext(t *testing.T) {
+	result := portfolioanalysis.Result{CalculatedAt: time.Now(), BaseCurrency: "CHF"}
+	for index := 0; index < 13; index++ {
+		result.Correlations = append(result.Correlations, portfolioanalysis.Correlation{
+			LeftContractID: int64(index + 1), RightContractID: int64(index + 101), LeftSymbol: "LEFT", RightSymbol: "RIGHT", Value: .5,
+		})
+	}
+	facts := portfolioRiskFacts(result)
+	correlations := 0
+	coverageWarning := false
+	for _, fact := range facts {
+		if strings.HasPrefix(fact.ID, "correlation.contract_") {
+			correlations++
+		}
+		if fact.ID == "warning.portfolio_risk.correlation_coverage" && fact.RequiredLimitation {
+			coverageWarning = true
+		}
+	}
+	if correlations != 12 || !coverageWarning {
+		t.Fatalf("unexpected bounded correlation facts: correlations=%d warning=%v", correlations, coverageWarning)
 	}
 }
 

@@ -5,9 +5,27 @@ aliases:
   portfolio_resume:
     id: portfolio_resume
     version: 3
+  portfolio_risk:
+    id: portfolio_risk
+    version: 1
   stock_news:
     id: stock_news
     version: 2
   order_analysis:
     id: order_analysis
     version: 2
+  currency_exposure:
+    id: currency_exposure
+    version: 1
+  effective_diversification:
+    id: effective_diversification
+    version: 1
+  portfolio_history_summary:
+    id: portfolio_history_summary
+    version: 1
+  position_risk:
+    id: position_risk
+    version: 1
+  portfolio_data_quality:
+    id: portfolio_data_quality
+    version: 1

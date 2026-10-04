@@ -1,7 +1,8 @@
 <script lang="ts">
   // StockDetailView.svelte owns market-data loading and presentation for one selected stock.
   import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-  import { GetStockHistory, GetStockNews, GetStockSnapshot } from '../../wailsjs/go/main/App.js'
+  import { GetPositionRiskAnalysis, GetStockHistory, GetStockNews, GetStockSnapshot } from '../../wailsjs/go/main/App.js'
+  import CounselorAction from '../components/CounselorAction.svelte'
   import CounselorResponse from '../components/CounselorResponse.svelte'
   import TradingPanel from '../components/TradingPanel.svelte'
   import { formatCurrencyAmount, formatDate, formatError, formatMoney, formatNumber, formatOptionalCurrency, formatOptionalNumber, formatPercent } from '../lib/format'
@@ -23,6 +24,7 @@
     StockHistoryView,
     StockSnapshotView,
   } from '../lib/types'
+  import { workflowCopy } from '../lib/counselor-workflows'
 
   export let stock: InstrumentSearchResultView
   export let position: PositionView | null
@@ -267,6 +269,14 @@
         <div><span>Market value</span><strong>{formatMoney(position.MarketValue)}</strong></div>
         <div><span>Unrealized P/L</span><strong class:loss={position.UnrealizedPnL.Available && position.UnrealizedPnL.Amount < 0} class="pnl">{formatMoney(position.UnrealizedPnL)}</strong></div>
       </div>
+      <div class="position-counselor">
+        <CounselorAction
+          workflow={workflowCopy('position_risk')}
+          action={() => GetPositionRiskAnalysis(stock.ContractID)}
+          resetOn={`${stock.ContractID}:${position.MarketValue.Amount}:${position.UnrealizedPnL.Amount}`}
+          on:sessionIssue={() => dispatch('sessionIssue')}
+        />
+      </div>
     </section>
   {:else}
     <section class="stock-not-held">This stock is not part of the current portfolio.</section>
@@ -333,6 +343,7 @@
   .section-title span { color: #5d6a7a; font-size: 14px; }
   .stock-position-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: #e5ebf1; }
   .stock-position-grid div { display: grid; gap: 7px; padding: 18px; background: white; }
+  .position-counselor { padding: 0 18px 18px; }
   .stock-position-grid span { color: #5d6a7a; font-size: 13px; }
   .stock-not-held { padding: 18px; border-left: 4px solid #1f6f8b; background: white; color: #5d6a7a; line-height: 1.5; }
   .pnl { color: #16835b; font-weight: 700; }

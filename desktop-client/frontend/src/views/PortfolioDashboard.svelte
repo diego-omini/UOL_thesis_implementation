@@ -1,8 +1,11 @@
 <script lang="ts">
   // PortfolioDashboard.svelte presents analytics, positions, and read-only counselor actions.
   import { createEventDispatcher, onDestroy } from 'svelte'
-  import { GetPortfolioNews, GetPortfolioResume } from '../../wailsjs/go/main/App.js'
+  import { GetCurrencyExposureAnalysis, GetDiversificationAnalysis, GetPortfolioDataQualityAudit, GetPortfolioNews, GetPortfolioResume } from '../../wailsjs/go/main/App.js'
+  import CounselorAction from '../components/CounselorAction.svelte'
   import CounselorResponse from '../components/CounselorResponse.svelte'
+  import PortfolioHistory from '../components/PortfolioHistory.svelte'
+  import PortfolioRiskAnalysis from '../components/PortfolioRiskAnalysis.svelte'
   import {
     formatDate,
     formatError,
@@ -13,6 +16,7 @@
     formatRatio,
   } from '../lib/format'
   import type { AIResponseView, PortfolioView, PositionView } from '../lib/types'
+  import { workflowCopy } from '../lib/counselor-workflows'
 
   export let portfolio: PortfolioView
 
@@ -78,7 +82,6 @@
 </script>
 
 <section class="summary-grid" aria-label="Account summary">
-  <article class="metric"><span>Account</span><strong>{portfolio.AccountSummary.AccountID || '-'}</strong></article>
   <article class="metric"><span>Net liquidation</span><strong>{formatMoney(portfolio.AccountSummary.NetLiquidation)}</strong></article>
   <article class="metric"><span>Cash balance</span><strong>{formatMoney(portfolio.AccountSummary.CashBalance)}</strong></article>
 </section>
@@ -101,6 +104,9 @@
   <article class="metric"><span>Concentration index</span><strong>{formatRatio(portfolio.Analytics.HHI)}</strong></article>
 </section>
 
+<PortfolioHistory />
+<PortfolioRiskAnalysis on:sessionIssue={() => dispatch('sessionIssue')} />
+
 {#if portfolio.Analytics.ExchangeRates.some(rate => rate.Available && rate.Currency !== rate.BaseCurrency)}
   <section class="exchange-rates" aria-label="Currency conversion rates">
     <strong>Currency conversion</strong>
@@ -114,6 +120,16 @@
     {/each}
   </section>
 {/if}
+
+<section class="focused-counselor" aria-label="Portfolio data-quality counselor">
+  <CounselorAction
+    workflow={workflowCopy('portfolio_data_quality')}
+    action={GetPortfolioDataQualityAudit}
+    disabled={portfolio.Empty}
+    resetOn={portfolio.Analytics.CalculatedAt}
+    on:sessionIssue={() => dispatch('sessionIssue')}
+  />
+</section>
 
 {#if portfolio.Analytics.Warnings.length > 0}
   <section class="warning" aria-label="Portfolio data warnings">
@@ -152,6 +168,25 @@
         <div class="allocation-row"><span>{position.Symbol || position.Name || '-'}</span><strong>{formatPercent(position.Weight)}</strong><small>{formatMoney(position.MarketValue)}</small></div>
       {/each}
     </article>
+  </section>
+  <section class="focused-counselor" aria-label="Currency exposure counselor">
+    <CounselorAction
+      workflow={workflowCopy('currency_exposure')}
+      action={GetCurrencyExposureAnalysis}
+      resetOn={portfolio.Analytics.CalculatedAt}
+      on:sessionIssue={() => dispatch('sessionIssue')}
+    />
+  </section>
+{/if}
+
+{#if !portfolio.Empty}
+  <section class="focused-counselor" aria-label="Effective diversification counselor">
+    <CounselorAction
+      workflow={workflowCopy('effective_diversification')}
+      action={GetDiversificationAnalysis}
+      resetOn={portfolio.Analytics.CalculatedAt}
+      on:sessionIssue={() => dispatch('sessionIssue')}
+    />
   </section>
 {/if}
 
@@ -284,6 +319,7 @@
   .analytics-heading,
   .allocation-grid,
   .warning,
+  .focused-counselor,
   .exchange-rates,
   .look-through-quality,
   .table-section {
@@ -321,6 +357,7 @@
   .analytics-heading span { color: #5d6a7a; font-size: 13px; }
 
   .warning,
+  .focused-counselor,
   .exchange-rates,
   .empty-state {
     display: grid;
@@ -332,6 +369,7 @@
   }
 
   .warning { border-color: #c98716; }
+  .focused-counselor { border-color: #4a7c91; }
   .warning ul { margin: 2px 0 0; padding-left: 20px; color: #5d6a7a; }
   .exchange-rates { border-color: #7a8797; }
   .exchange-rates div { display: flex; justify-content: space-between; gap: 16px; }

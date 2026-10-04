@@ -98,6 +98,35 @@ func TestRecordPromptExecutionRemovesSecretsAndTokens(t *testing.T) {
 	}
 }
 
+func TestRecordFocusedWorkflowExecutionMetadata(t *testing.T) {
+	store := openTestStore(t)
+	promptIDs := []string{"currency_exposure", "effective_diversification", "portfolio_history_summary", "position_risk", "portfolio_data_quality"}
+	for _, promptID := range promptIDs {
+		execution := ai.PromptExecution{
+			StartedAt: time.Now(), CompletedAt: time.Now(), Provider: "ollama", Model: "test-model",
+			PromptID: promptID, PromptVersion: 1, Parameters: map[string]any{"facts": []any{}},
+			ModelSettings: ai.GenerationSettings{Temperature: 0, MaxTokens: 2400},
+			ResponseText:  `{"schema_version":1}`, RepairStatus: "not_attempted",
+			ValidationResult: ai.CounselorValidationResult{Valid: true},
+		}
+		if err := store.RecordPromptExecution(context.Background(), execution); err != nil {
+			t.Fatalf("RecordPromptExecution(%s) error: %v", promptID, err)
+		}
+	}
+	var records []PromptExecutionRecord
+	if err := store.db.Order("id").Find(&records).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != len(promptIDs) {
+		t.Fatalf("prompt execution record count = %d, want %d", len(records), len(promptIDs))
+	}
+	for index, record := range records {
+		if record.PromptID != promptIDs[index] || record.PromptVersion != 1 || record.Provider != "ollama" || record.Model != "test-model" || record.Status != "success" || record.ModelSettingsJSON == "" {
+			t.Fatalf("unexpected focused workflow audit record: %+v", record)
+		}
+	}
+}
+
 func TestSaveEvaluationBundleAndOrderAudit(t *testing.T) {
 	store := openTestStore(t)
 	createdAt := time.Date(2026, 9, 26, 13, 0, 0, 0, time.UTC)

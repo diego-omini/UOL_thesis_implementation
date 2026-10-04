@@ -34,6 +34,8 @@ func TestLoadEnvironmentOverrides(t *testing.T) {
 	t.Setenv(aiSearchBaseURLEnv, "https://search.example.test/api")
 	t.Setenv(aiSearchDomainsEnv, "sec.gov, reuters.com")
 	t.Setenv(aiSearchMaxResultsEnv, "3")
+	t.Setenv(snapTradeClientIDEnv, "personal-client")
+	t.Setenv(snapTradeConsumerEnv, "personal-secret")
 
 	cfg, err := Load()
 	if err != nil {
@@ -57,6 +59,9 @@ func TestLoadEnvironmentOverrides(t *testing.T) {
 	}
 	if len(cfg.AI.SearchAllowedDomains) != 2 || cfg.AI.SearchAllowedDomains[1] != "reuters.com" {
 		t.Fatalf("research domains were not applied: %+v", cfg.AI.SearchAllowedDomains)
+	}
+	if cfg.SnapTrade.ClientID != "personal-client" || cfg.SnapTrade.ConsumerKey != "personal-secret" {
+		t.Fatalf("SnapTrade configuration overrides were not applied")
 	}
 }
 
@@ -103,6 +108,16 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 
 		if _, err := Load(); err == nil {
 			t.Fatal("expected an invalid search result limit to return an error")
+		}
+	})
+
+	t.Run("partial SnapTrade credentials", func(t *testing.T) {
+		t.Setenv(ibkrGatewayDirEnv, "")
+		t.Setenv(snapTradeClientIDEnv, "personal-client")
+		t.Setenv(snapTradeConsumerEnv, "")
+
+		if _, err := Load(); err == nil {
+			t.Fatal("expected partial SnapTrade credentials to return an error")
 		}
 	})
 }

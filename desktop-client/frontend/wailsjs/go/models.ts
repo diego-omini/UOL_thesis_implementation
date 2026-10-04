@@ -185,7 +185,6 @@ export namespace main {
 	    }
 	}
 	export class AccountSummaryView {
-	    AccountID: string;
 	    NetLiquidation: MoneyView;
 	    CashBalance: MoneyView;
 	
@@ -195,7 +194,6 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.AccountID = source["AccountID"];
 	        this.NetLiquidation = this.convertValues(source["NetLiquidation"], MoneyView);
 	        this.CashBalance = this.convertValues(source["CashBalance"], MoneyView);
 	    }
@@ -649,6 +647,377 @@ export namespace main {
 	        this.WarningMessages = source["WarningMessages"];
 	    }
 	}
+	export class PortfolioCorrelationView {
+	    LeftSymbol: string;
+	    RightSymbol: string;
+	    Value: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioCorrelationView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.LeftSymbol = source["LeftSymbol"];
+	        this.RightSymbol = source["RightSymbol"];
+	        this.Value = source["Value"];
+	    }
+	}
+	export class PortfolioHistoryMetricView {
+	    Value: number;
+	    Currency: string;
+	    Available: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioHistoryMetricView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Value = source["Value"];
+	        this.Currency = source["Currency"];
+	        this.Available = source["Available"];
+	    }
+	}
+	export class PortfolioHistoryWarningView {
+	    Code: string;
+	    Message: string;
+	    Count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioHistoryWarningView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Code = source["Code"];
+	        this.Message = source["Message"];
+	        this.Count = source["Count"];
+	    }
+	}
+	export class PortfolioHistoryPointView {
+	    CapturedAt: string;
+	    Source: string;
+	    EndOfDay: boolean;
+	    NetLiquidation: PortfolioHistoryMetricView;
+	    Cash: PortfolioHistoryMetricView;
+	    GrossExposure: PortfolioHistoryMetricView;
+	    NetMarketValue: PortfolioHistoryMetricView;
+	    UnrealizedPnL: PortfolioHistoryMetricView;
+	    TopThreeConcentration: PortfolioHistoryMetricView;
+	    HHI: PortfolioHistoryMetricView;
+	    PositionCount: PortfolioHistoryMetricView;
+	    Warnings: PortfolioHistoryWarningView[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioHistoryPointView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.CapturedAt = source["CapturedAt"];
+	        this.Source = source["Source"];
+	        this.EndOfDay = source["EndOfDay"];
+	        this.NetLiquidation = this.convertValues(source["NetLiquidation"], PortfolioHistoryMetricView);
+	        this.Cash = this.convertValues(source["Cash"], PortfolioHistoryMetricView);
+	        this.GrossExposure = this.convertValues(source["GrossExposure"], PortfolioHistoryMetricView);
+	        this.NetMarketValue = this.convertValues(source["NetMarketValue"], PortfolioHistoryMetricView);
+	        this.UnrealizedPnL = this.convertValues(source["UnrealizedPnL"], PortfolioHistoryMetricView);
+	        this.TopThreeConcentration = this.convertValues(source["TopThreeConcentration"], PortfolioHistoryMetricView);
+	        this.HHI = this.convertValues(source["HHI"], PortfolioHistoryMetricView);
+	        this.PositionCount = this.convertValues(source["PositionCount"], PortfolioHistoryMetricView);
+	        this.Warnings = this.convertValues(source["Warnings"], PortfolioHistoryWarningView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PortfolioHistorySeriesView {
+	    BaseCurrency: string;
+	    Points: PortfolioHistoryPointView[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioHistorySeriesView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.BaseCurrency = source["BaseCurrency"];
+	        this.Points = this.convertValues(source["Points"], PortfolioHistoryPointView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PortfolioHistoryView {
+	    Range: string;
+	    From: string;
+	    To: string;
+	    AccountValueSeries: PortfolioHistorySeriesView[];
+	    TrackingSeries: PortfolioHistorySeriesView[];
+	    TrackingStartedAt: string;
+	    StoredPointCount: number;
+	    AccountValuePointCount: number;
+	    TrackingPointCount: number;
+	    AccountValueDuplicatePointCount: number;
+	    TrackingDuplicatePointCount: number;
+	    AccountValueDownsampled: boolean;
+	    TrackingDownsampled: boolean;
+	    OfficialPointCount: number;
+	    EstimatedPointCount: number;
+	    ImportWarning: string;
+	    ExternalConfigured: boolean;
+	    ConnectionRequired: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioHistoryView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Range = source["Range"];
+	        this.From = source["From"];
+	        this.To = source["To"];
+	        this.AccountValueSeries = this.convertValues(source["AccountValueSeries"], PortfolioHistorySeriesView);
+	        this.TrackingSeries = this.convertValues(source["TrackingSeries"], PortfolioHistorySeriesView);
+	        this.TrackingStartedAt = source["TrackingStartedAt"];
+	        this.StoredPointCount = source["StoredPointCount"];
+	        this.AccountValuePointCount = source["AccountValuePointCount"];
+	        this.TrackingPointCount = source["TrackingPointCount"];
+	        this.AccountValueDuplicatePointCount = source["AccountValueDuplicatePointCount"];
+	        this.TrackingDuplicatePointCount = source["TrackingDuplicatePointCount"];
+	        this.AccountValueDownsampled = source["AccountValueDownsampled"];
+	        this.TrackingDownsampled = source["TrackingDownsampled"];
+	        this.OfficialPointCount = source["OfficialPointCount"];
+	        this.EstimatedPointCount = source["EstimatedPointCount"];
+	        this.ImportWarning = source["ImportWarning"];
+	        this.ExternalConfigured = source["ExternalConfigured"];
+	        this.ConnectionRequired = source["ConnectionRequired"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class PortfolioScenarioView {
+	    ID: string;
+	    Name: string;
+	    Description: string;
+	    Impact: MoneyView;
+	    ImpactRatio: RatioView;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioScenarioView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ID = source["ID"];
+	        this.Name = source["Name"];
+	        this.Description = source["Description"];
+	        this.Impact = this.convertValues(source["Impact"], MoneyView);
+	        this.ImpactRatio = this.convertValues(source["ImpactRatio"], RatioView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PortfolioRiskPositionView {
+	    ContractID: number;
+	    Symbol: string;
+	    Name: string;
+	    SignedWeight: number;
+	    TotalReturn: RatioView;
+	    AnnualizedVolatility: RatioView;
+	    ReturnContribution: RatioView;
+	    RiskContribution: RatioView;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioRiskPositionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ContractID = source["ContractID"];
+	        this.Symbol = source["Symbol"];
+	        this.Name = source["Name"];
+	        this.SignedWeight = source["SignedWeight"];
+	        this.TotalReturn = this.convertValues(source["TotalReturn"], RatioView);
+	        this.AnnualizedVolatility = this.convertValues(source["AnnualizedVolatility"], RatioView);
+	        this.ReturnContribution = this.convertValues(source["ReturnContribution"], RatioView);
+	        this.RiskContribution = this.convertValues(source["RiskContribution"], RatioView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PortfolioRiskAnalysisView {
+	    CalculatedAt: string;
+	    BaseCurrency: string;
+	    PeriodStart: string;
+	    PeriodEnd: string;
+	    Observations: number;
+	    IncludedPositionCount: number;
+	    TotalPositionCount: number;
+	    ModeledTotalReturn: RatioView;
+	    AnnualizedVolatility: RatioView;
+	    DownsideDeviation: RatioView;
+	    MaximumDrawdown: RatioView;
+	    Positions: PortfolioRiskPositionView[];
+	    Correlations: PortfolioCorrelationView[];
+	    Scenarios: PortfolioScenarioView[];
+	    Warnings: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioRiskAnalysisView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.CalculatedAt = source["CalculatedAt"];
+	        this.BaseCurrency = source["BaseCurrency"];
+	        this.PeriodStart = source["PeriodStart"];
+	        this.PeriodEnd = source["PeriodEnd"];
+	        this.Observations = source["Observations"];
+	        this.IncludedPositionCount = source["IncludedPositionCount"];
+	        this.TotalPositionCount = source["TotalPositionCount"];
+	        this.ModeledTotalReturn = this.convertValues(source["ModeledTotalReturn"], RatioView);
+	        this.AnnualizedVolatility = this.convertValues(source["AnnualizedVolatility"], RatioView);
+	        this.DownsideDeviation = this.convertValues(source["DownsideDeviation"], RatioView);
+	        this.MaximumDrawdown = this.convertValues(source["MaximumDrawdown"], RatioView);
+	        this.Positions = this.convertValues(source["Positions"], PortfolioRiskPositionView);
+	        this.Correlations = this.convertValues(source["Correlations"], PortfolioCorrelationView);
+	        this.Scenarios = this.convertValues(source["Scenarios"], PortfolioScenarioView);
+	        this.Warnings = source["Warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PortfolioRiskCounselView {
+	    Analysis: PortfolioRiskAnalysisView;
+	    Response: AIResponseView;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortfolioRiskCounselView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Analysis = this.convertValues(source["Analysis"], PortfolioRiskAnalysisView);
+	        this.Response = this.convertValues(source["Response"], AIResponseView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class PositionView {
 	    Instrument: InstrumentView;
 	    Quantity: number;

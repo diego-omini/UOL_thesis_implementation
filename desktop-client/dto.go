@@ -9,6 +9,8 @@ import (
 	"wails/analytics"
 	"wails/broker"
 	"wails/portfolio"
+	"wails/portfolioanalysis"
+	"wails/portfoliohistory"
 	"wails/trading"
 )
 
@@ -41,7 +43,6 @@ type RatioView struct {
 }
 
 type AccountSummaryView struct {
-	AccountID      string
 	NetLiquidation MoneyView
 	CashBalance    MoneyView
 }
@@ -201,6 +202,107 @@ type PortfolioView struct {
 	Empty          bool
 }
 
+type PortfolioRiskPositionView struct {
+	ContractID           int64
+	Symbol               string
+	Name                 string
+	SignedWeight         float64
+	TotalReturn          RatioView
+	AnnualizedVolatility RatioView
+	ReturnContribution   RatioView
+	RiskContribution     RatioView
+}
+
+type PortfolioCorrelationView struct {
+	LeftSymbol  string
+	RightSymbol string
+	Value       float64
+}
+
+type PortfolioScenarioView struct {
+	ID          string
+	Name        string
+	Description string
+	Impact      MoneyView
+	ImpactRatio RatioView
+}
+
+type PortfolioRiskAnalysisView struct {
+	CalculatedAt          string
+	BaseCurrency          string
+	PeriodStart           string
+	PeriodEnd             string
+	Observations          int
+	IncludedPositionCount int
+	TotalPositionCount    int
+	ModeledTotalReturn    RatioView
+	AnnualizedVolatility  RatioView
+	DownsideDeviation     RatioView
+	MaximumDrawdown       RatioView
+	Positions             []PortfolioRiskPositionView
+	Correlations          []PortfolioCorrelationView
+	Scenarios             []PortfolioScenarioView
+	Warnings              []string
+}
+
+type PortfolioRiskCounselView struct {
+	Analysis PortfolioRiskAnalysisView
+	Response AIResponseView
+}
+
+type PortfolioHistoryMetricView struct {
+	Value     float64
+	Currency  string
+	Available bool
+}
+
+type PortfolioHistoryWarningView struct {
+	Code    string
+	Message string
+	Count   int
+}
+
+type PortfolioHistoryPointView struct {
+	CapturedAt            string
+	Source                string
+	EndOfDay              bool
+	NetLiquidation        PortfolioHistoryMetricView
+	Cash                  PortfolioHistoryMetricView
+	GrossExposure         PortfolioHistoryMetricView
+	NetMarketValue        PortfolioHistoryMetricView
+	UnrealizedPnL         PortfolioHistoryMetricView
+	TopThreeConcentration PortfolioHistoryMetricView
+	HHI                   PortfolioHistoryMetricView
+	PositionCount         PortfolioHistoryMetricView
+	Warnings              []PortfolioHistoryWarningView
+}
+
+type PortfolioHistorySeriesView struct {
+	BaseCurrency string
+	Points       []PortfolioHistoryPointView
+}
+
+type PortfolioHistoryView struct {
+	Range                           string
+	From                            string
+	To                              string
+	AccountValueSeries              []PortfolioHistorySeriesView
+	TrackingSeries                  []PortfolioHistorySeriesView
+	TrackingStartedAt               string
+	StoredPointCount                int
+	AccountValuePointCount          int
+	TrackingPointCount              int
+	AccountValueDuplicatePointCount int
+	TrackingDuplicatePointCount     int
+	AccountValueDownsampled         bool
+	TrackingDownsampled             bool
+	OfficialPointCount              int
+	EstimatedPointCount             int
+	ImportWarning                   string
+	ExternalConfigured              bool
+	ConnectionRequired              bool
+}
+
 type AIResponseView struct {
 	Text          string
 	Structured    CounselorResponseView
@@ -312,7 +414,6 @@ func toPortfolioView(p portfolio.Portfolio, result analytics.Result) PortfolioVi
 
 	return PortfolioView{
 		AccountSummary: AccountSummaryView{
-			AccountID:      p.AccountSummary.AccountID,
 			NetLiquidation: toMoneyView(p.AccountSummary.NetLiquidation),
 			CashBalance:    toMoneyView(p.AccountSummary.CashBalance),
 		},
@@ -324,6 +425,85 @@ func toPortfolioView(p portfolio.Portfolio, result analytics.Result) PortfolioVi
 
 func toMoneyView(m portfolio.Money) MoneyView {
 	return MoneyView{Amount: m.Amount, Currency: m.Currency, Available: m.Available}
+}
+
+func toPortfolioRiskAnalysisView(result portfolioanalysis.Result) PortfolioRiskAnalysisView {
+	view := PortfolioRiskAnalysisView{
+		CalculatedAt: result.CalculatedAt.Format(time.RFC3339), BaseCurrency: result.BaseCurrency,
+		Observations: result.Observations, IncludedPositionCount: result.IncludedPositionCount, TotalPositionCount: result.TotalPositionCount,
+		ModeledTotalReturn: RatioView(result.ModeledTotalReturn), AnnualizedVolatility: RatioView(result.AnnualizedVolatility),
+		DownsideDeviation: RatioView(result.DownsideDeviation), MaximumDrawdown: RatioView(result.MaximumDrawdown),
+		Positions: make([]PortfolioRiskPositionView, 0, len(result.Positions)), Correlations: make([]PortfolioCorrelationView, 0, len(result.Correlations)),
+		Scenarios: make([]PortfolioScenarioView, 0, len(result.Scenarios)), Warnings: append([]string{}, result.Warnings...),
+	}
+	if !result.PeriodStart.IsZero() {
+		view.PeriodStart = result.PeriodStart.Format(time.RFC3339)
+	}
+	if !result.PeriodEnd.IsZero() {
+		view.PeriodEnd = result.PeriodEnd.Format(time.RFC3339)
+	}
+	for _, position := range result.Positions {
+		view.Positions = append(view.Positions, PortfolioRiskPositionView{ContractID: position.ContractID, Symbol: position.Symbol, Name: position.Name, SignedWeight: position.SignedWeight, TotalReturn: RatioView(position.TotalReturn), AnnualizedVolatility: RatioView(position.AnnualizedVolatility), ReturnContribution: RatioView(position.ReturnContribution), RiskContribution: RatioView(position.RiskContribution)})
+	}
+	for _, correlation := range result.Correlations {
+		view.Correlations = append(view.Correlations, PortfolioCorrelationView{LeftSymbol: correlation.LeftSymbol, RightSymbol: correlation.RightSymbol, Value: correlation.Value})
+	}
+	for _, scenario := range result.Scenarios {
+		view.Scenarios = append(view.Scenarios, PortfolioScenarioView{ID: scenario.ID, Name: scenario.Name, Description: scenario.Description, Impact: toMoneyView(scenario.Impact), ImpactRatio: RatioView(scenario.ImpactRatio)})
+	}
+	return view
+}
+
+// toPortfolioHistoryView maps domain history without exposing account identity or persisted payloads.
+func toPortfolioHistoryView(timeRange string, result portfoliohistory.Result) PortfolioHistoryView {
+	view := PortfolioHistoryView{
+		Range: timeRange, From: result.From.Format(time.RFC3339), To: result.To.Format(time.RFC3339),
+		StoredPointCount:       result.StoredPointCount,
+		AccountValuePointCount: result.AccountValuePointCount, TrackingPointCount: result.TrackingPointCount,
+		AccountValueDuplicatePointCount: result.AccountValueDuplicatePointCount,
+		TrackingDuplicatePointCount:     result.TrackingDuplicatePointCount,
+		AccountValueDownsampled:         result.AccountValueDownsampled, TrackingDownsampled: result.TrackingDownsampled,
+		OfficialPointCount: result.OfficialPointCount, EstimatedPointCount: result.EstimatedPointCount,
+		ImportWarning: result.ImportWarning, ExternalConfigured: result.ExternalConfigured,
+		ConnectionRequired: result.ConnectionRequired,
+		AccountValueSeries: make([]PortfolioHistorySeriesView, 0, len(result.AccountValueSeries)),
+		TrackingSeries:     make([]PortfolioHistorySeriesView, 0, len(result.TrackingSeries)),
+	}
+	if !result.TrackingStartedAt.IsZero() {
+		view.TrackingStartedAt = result.TrackingStartedAt.Format(time.RFC3339)
+	}
+	view.AccountValueSeries = historySeriesViews(result.AccountValueSeries)
+	view.TrackingSeries = historySeriesViews(result.TrackingSeries)
+	return view
+}
+
+func historySeriesViews(seriesValues []portfoliohistory.Series) []PortfolioHistorySeriesView {
+	views := make([]PortfolioHistorySeriesView, 0, len(seriesValues))
+	for _, series := range seriesValues {
+		seriesView := PortfolioHistorySeriesView{
+			BaseCurrency: series.BaseCurrency,
+			Points:       make([]PortfolioHistoryPointView, 0, len(series.Points)),
+		}
+		for _, point := range series.Points {
+			warnings := make([]PortfolioHistoryWarningView, 0, len(point.Warnings))
+			for _, warning := range point.Warnings {
+				warnings = append(warnings, PortfolioHistoryWarningView(warning))
+			}
+			seriesView.Points = append(seriesView.Points, PortfolioHistoryPointView{
+				CapturedAt: point.CapturedAt.Format(time.RFC3339), Source: point.Source, EndOfDay: point.EndOfDay,
+				NetLiquidation: historyMetricView(point.NetLiquidation), Cash: historyMetricView(point.Cash),
+				GrossExposure: historyMetricView(point.GrossExposure), NetMarketValue: historyMetricView(point.NetMarketValue),
+				UnrealizedPnL: historyMetricView(point.UnrealizedPnL), TopThreeConcentration: historyMetricView(point.TopThreeConcentration),
+				HHI: historyMetricView(point.HHI), PositionCount: historyMetricView(point.PositionCount), Warnings: warnings,
+			})
+		}
+		views = append(views, seriesView)
+	}
+	return views
+}
+
+func historyMetricView(metric portfoliohistory.Metric) PortfolioHistoryMetricView {
+	return PortfolioHistoryMetricView(metric)
 }
 
 func toInstrumentSearchResultViews(results []portfolio.InstrumentSearchResult) []InstrumentSearchResultView {

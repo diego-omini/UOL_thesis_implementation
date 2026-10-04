@@ -20,6 +20,7 @@ import (
 	"time"
 	"wails/broker"
 	"wails/portfolio"
+	"wails/portfoliohistory"
 )
 
 const (
@@ -171,6 +172,30 @@ type marketDataHistoryBar struct {
 	High   float64 `json:"h"`
 	Volume float64 `json:"v"`
 	Time   int64   `json:"t"`
+}
+
+type portfolioPerformanceRequest struct {
+	AccountIDs []string `json:"acctIds"`
+	Period     string   `json:"period"`
+}
+
+type portfolioPerformanceResponse struct {
+	NAV struct {
+		Data      []portfolioPerformanceSeries `json:"data"`
+		Frequency string                       `json:"freq"`
+		Dates     []string                     `json:"dates"`
+	} `json:"nav"`
+	Included []string `json:"included"`
+}
+
+type portfolioPerformanceSeries struct {
+	ID           string          `json:"id"`
+	NAVs         []decimalNumber `json:"navs"`
+	BaseCurrency string          `json:"baseCurrency"`
+	StartNAV     struct {
+		Date  string        `json:"date"`
+		Value decimalNumber `json:"val"`
+	} `json:"startNAV"`
 }
 
 type stockHistoryRequest struct {
@@ -529,6 +554,129 @@ func (c *Client) FetchPortfolio(ctx context.Context) (portfolio.Portfolio, error
 		Positions:      positions,
 		ExchangeRates:  exchangeRates,
 	}, nil
+}
+
+// FetchPortfolioNAVHistory retrieves one account's official daily PortfolioAnalyst NAV series.
+func (c *Client) FetchPortfolioNAVHistory(ctx context.Context, accountID, period string) (portfoliohistory.NAVHistory, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return portfoliohistory.NAVHistory{}, errors.New("an account ID is required for portfolio history")
+	}
+	period = strings.ToUpper(strings.TrimSpace(period))
+	if period != "1Y" && period != "12M" {
+		return portfoliohistory.NAVHistory{}, fmt.Errorf("unsupported PortfolioAnalyst period %q", period)
+	}
+
+	periods := []string{period}
+	if period == "1Y" {
+		periods = append(periods, "12M")
+	} else {
+		periods = append(periods, "1Y")
+	}
+	for index, requestPeriod := range periods {
+		var response portfolioPerformanceResponse
+		err := c.postJSONBody(ctx, "/pa/performance", portfolioPerformanceRequest{
+			AccountIDs: []string{accountID}, Period: requestPeriod,
+		}, &response)
+		if err == nil {
+			return mapPortfolioPerformance(response, accountID, time.Now().UTC())
+		}
+		if index == 0 && invalidPortfolioPerformancePeriod(err) {
+			continue
+		}
+		return portfoliohistory.NAVHistory{}, fmt.Errorf("failed to fetch IBKR portfolio performance: %w", err)
+	}
+	return portfoliohistory.NAVHistory{}, errors.New("failed to fetch IBKR portfolio performance")
+}
+
+func invalidPortfolioPerformancePeriod(err error) bool {
+	var statusErr httpStatusError
+	return errors.As(err, &statusErr) && statusErr.statusCode == http.StatusBadRequest &&
+		strings.Contains(strings.ToLower(statusErr.message), "invalid period")
+}
+
+// mapPortfolioPerformance validates account ownership and aligns every reported date with one NAV value.
+func mapPortfolioPerformance(response portfolioPerformanceResponse, accountID string, retrievedAt time.Time) (portfoliohistory.NAVHistory, error) {
+	if len(response.Included) > 0 && !containsFold(response.Included, accountID) {
+		return portfoliohistory.NAVHistory{}, errors.New("IBKR portfolio performance did not include the requested account")
+	}
+	if !strings.EqualFold(strings.TrimSpace(response.NAV.Frequency), "D") {
+		return portfoliohistory.NAVHistory{}, fmt.Errorf("IBKR portfolio performance returned unsupported frequency %q", response.NAV.Frequency)
+	}
+
+	var series *portfolioPerformanceSeries
+	for index := range response.NAV.Data {
+		if strings.EqualFold(strings.TrimSpace(response.NAV.Data[index].ID), accountID) {
+			series = &response.NAV.Data[index]
+			break
+		}
+	}
+	if series == nil {
+		return portfoliohistory.NAVHistory{}, errors.New("IBKR portfolio performance did not return a series for the requested account")
+	}
+	if len(series.NAVs) != len(response.NAV.Dates) {
+		return portfoliohistory.NAVHistory{}, errors.New("IBKR portfolio performance returned mismatched NAV values and dates")
+	}
+	currency := strings.ToUpper(strings.TrimSpace(series.BaseCurrency))
+	if currency == "" {
+		return portfoliohistory.NAVHistory{}, errors.New("IBKR portfolio performance omitted the base currency")
+	}
+
+	byDate := make(map[string]portfoliohistory.NAVObservation, len(series.NAVs)+1)
+	addObservation := func(rawDate string, value decimalNumber) error {
+		if !value.valid || math.IsNaN(value.value) || math.IsInf(value.value, 0) {
+			return fmt.Errorf("IBKR portfolio performance returned an unavailable NAV for %q", rawDate)
+		}
+		date, err := time.Parse("20060102", strings.TrimSpace(rawDate))
+		if err != nil {
+			return fmt.Errorf("IBKR portfolio performance returned invalid date %q", rawDate)
+		}
+		key := date.Format("2006-01-02")
+		if _, exists := byDate[key]; exists {
+			return fmt.Errorf("IBKR portfolio performance returned duplicate date %s", key)
+		}
+		byDate[key] = portfoliohistory.NAVObservation{
+			Date: date.UTC(), Value: value.value, BaseCurrency: currency,
+			Source: portfoliohistory.SourceIBKRPortfolioAnalyst,
+		}
+		return nil
+	}
+	if strings.TrimSpace(series.StartNAV.Date) != "" || series.StartNAV.Value.valid {
+		if err := addObservation(series.StartNAV.Date, series.StartNAV.Value); err != nil {
+			return portfoliohistory.NAVHistory{}, err
+		}
+	}
+	for index, rawDate := range response.NAV.Dates {
+		if err := addObservation(rawDate, series.NAVs[index]); err != nil {
+			return portfoliohistory.NAVHistory{}, err
+		}
+	}
+
+	keys := make([]string, 0, len(byDate))
+	for key := range byDate {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	history := portfoliohistory.NAVHistory{
+		AccountID: accountID, Frequency: "D", Source: portfoliohistory.SourceIBKRPortfolioAnalyst, RetrievedAt: retrievedAt.UTC(),
+		Points: make([]portfoliohistory.NAVObservation, 0, len(keys)),
+	}
+	for _, key := range keys {
+		history.Points = append(history.Points, byDate[key])
+	}
+	if err := history.Validate(); err != nil {
+		return portfoliohistory.NAVHistory{}, err
+	}
+	return history, nil
+}
+
+func containsFold(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), target) {
+			return true
+		}
+	}
+	return false
 }
 
 // SearchStocks merges ticker and company-name results from the authenticated gateway session.

@@ -27,6 +27,14 @@ var unsafeAuthorityPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`\b(order|trade)\s+(was|is|has been|will be)\s+(executed|placed|submitted|confirmed)\b`),
 }
 
+var unsafeAdvicePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`\b(you should|i recommend|we recommend|the counselor recommends|consider)\s+(buy|buying|sell|selling|hold|holding|trim|trimming|add|adding|replace|replacing|increase|increasing|decrease|decreasing)\b`),
+	regexp.MustCompile(`\b(you should|i recommend|we recommend|recommend|use|adopt|propose)\s+(an?\s+|the\s+)?target\s+(allocation|weight|position|percentage)\b`),
+	regexp.MustCompile(`(^|[.!?]\s+)set\s+(an?\s+|the\s+)?target\s+(allocation|weight|position|percentage)\b`),
+	regexp.MustCompile(`(^|[.!?]\s+)replace\s+[^.!?]{1,80}\s+with\s+[^.!?]{1,80}`),
+	regexp.MustCompile(`\b(step\s+\d+|next|then)[:,]?\s+(place|submit|confirm)\s+(an?\s+|the\s+|this\s+)?(order|trade)\b`),
+}
+
 type ObservationCategory string
 
 const (
@@ -254,6 +262,9 @@ func validateCounselorResponse(response CounselorResponse, facts []CounselorFact
 	if unsafe := unsafeAuthorityClaim(strings.Join(allText, " ")); unsafe != "" {
 		errors = append(errors, fmt.Sprintf("response contains unsupported trading authority or execution claim %q", unsafe))
 	}
+	if unsafe := unsafeAdviceClaim(strings.Join(allText, " ")); unsafe != "" {
+		errors = append(errors, fmt.Sprintf("response contains prohibited prescriptive or order-like guidance %q", unsafe))
+	}
 	return errors
 }
 
@@ -399,6 +410,16 @@ func allFactsHaveKind(facts map[string]CounselorFact, kind ObservationCategory) 
 func unsafeAuthorityClaim(text string) string {
 	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
 	for _, pattern := range unsafeAuthorityPatterns {
+		if match := pattern.FindString(normalized); match != "" {
+			return match
+		}
+	}
+	return ""
+}
+
+func unsafeAdviceClaim(text string) string {
+	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	for _, pattern := range unsafeAdvicePatterns {
 		if match := pattern.FindString(normalized); match != "" {
 			return match
 		}

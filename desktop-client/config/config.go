@@ -25,6 +25,8 @@ const (
 	aiSearchBaseURLEnv    = "AI_SEARCH_BASE_URL"
 	aiSearchDomainsEnv    = "AI_SEARCH_ALLOWED_DOMAINS"
 	aiSearchMaxResultsEnv = "AI_SEARCH_MAX_RESULTS"
+	snapTradeClientIDEnv  = "SNAPTRADE_CLIENT_ID"
+	snapTradeConsumerEnv  = "SNAPTRADE_CONSUMER_KEY"
 	settingsDirectory     = "uol-portfolio-tracker"
 	settingsFilename      = "settings.json"
 )
@@ -47,14 +49,21 @@ type AIConfig struct {
 	SearchMaxResults     int
 }
 
+// SnapTradeConfig contains optional Personal API key credentials for read-only history backfill.
+type SnapTradeConfig struct {
+	ClientID    string
+	ConsumerKey string
+}
+
 type localSettings struct {
 	GatewayDirectory string `json:"gatewayDirectory"`
 }
 
 // AppConfig groups the configurable settings used by the desktop application.
 type AppConfig struct {
-	IBKR IBKRConfig
-	AI   AIConfig
+	IBKR      IBKRConfig
+	AI        AIConfig
+	SnapTrade SnapTradeConfig
 }
 
 // DefaultConfig returns development defaults for IBKR, local inference, and web research.
@@ -129,6 +138,12 @@ func Load() (AppConfig, error) {
 		}
 		cfg.AI.SearchMaxResults = maximum
 	}
+	if value, ok := os.LookupEnv(snapTradeClientIDEnv); ok {
+		cfg.SnapTrade.ClientID = strings.TrimSpace(value)
+	}
+	if value, ok := os.LookupEnv(snapTradeConsumerEnv); ok {
+		cfg.SnapTrade.ConsumerKey = strings.TrimSpace(value)
+	}
 
 	if err := validateBaseURL(cfg.IBKR.BaseURL); err != nil {
 		return AppConfig{}, fmt.Errorf("invalid %s: %w", ibkrBaseURLEnv, err)
@@ -150,6 +165,9 @@ func Load() (AppConfig, error) {
 	}
 	if cfg.AI.SearchMaxResults < 1 || cfg.AI.SearchMaxResults > 10 {
 		return AppConfig{}, fmt.Errorf("%s must be between 1 and 10", aiSearchMaxResultsEnv)
+	}
+	if (cfg.SnapTrade.ClientID == "") != (cfg.SnapTrade.ConsumerKey == "") {
+		return AppConfig{}, fmt.Errorf("%s and %s must be configured together", snapTradeClientIDEnv, snapTradeConsumerEnv)
 	}
 
 	return cfg, nil

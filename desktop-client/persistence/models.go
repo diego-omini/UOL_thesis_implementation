@@ -18,6 +18,31 @@ type PortfolioSnapshotRecord struct {
 	AnalyticsJSON      string    `gorm:"type:text;not null"`
 }
 
+// PortfolioNAVHistoryRecord stores one broker-reported end-of-day portfolio value.
+type PortfolioNAVHistoryRecord struct {
+	ID                 uint      `gorm:"primaryKey"`
+	CreatedAt          time.Time `gorm:"not null"`
+	UpdatedAt          time.Time `gorm:"not null"`
+	SchemaVersion      int       `gorm:"not null"`
+	AccountFingerprint string    `gorm:"size:64;not null;uniqueIndex:idx_nav_history_identity"`
+	ObservedDate       string    `gorm:"size:10;not null;uniqueIndex:idx_nav_history_identity"`
+	BaseCurrency       string    `gorm:"size:16;not null;uniqueIndex:idx_nav_history_identity"`
+	Source             string    `gorm:"size:64;not null;uniqueIndex:idx_nav_history_identity"`
+	NAV                float64   `gorm:"not null"`
+	Frequency          string    `gorm:"size:8;not null"`
+	ImportedAt         time.Time `gorm:"not null;index"`
+}
+
+// PortfolioNAVImportRecord marks every successful source refresh, including an empty dataset.
+type PortfolioNAVImportRecord struct {
+	ID                 uint      `gorm:"primaryKey"`
+	CreatedAt          time.Time `gorm:"not null"`
+	SchemaVersion      int       `gorm:"not null"`
+	AccountFingerprint string    `gorm:"size:64;not null;index:idx_nav_import_account_source"`
+	Source             string    `gorm:"size:64;not null;index:idx_nav_import_account_source"`
+	ImportedAt         time.Time `gorm:"not null;index"`
+}
+
 // PromptExecutionRecord stores one successful or failed catalog-prompt execution.
 type PromptExecutionRecord struct {
 	ID                   uint      `gorm:"primaryKey"`

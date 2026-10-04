@@ -143,6 +143,104 @@ func TestFetchPortfolioDoesNotRequireTradingSession(t *testing.T) {
 	}
 }
 
+func TestFetchPortfolioNAVHistoryMapsDailyBaseCurrencySeries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/pa/performance" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		var request portfolioPerformanceRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if len(request.AccountIDs) != 1 || request.AccountIDs[0] != "DU123456" || request.Period != "1Y" {
+			t.Fatalf("unexpected performance request: %+v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"included":["DU123456"],
+			"nav":{"freq":"D","dates":["20261001","20261002"],"data":[{
+				"id":"DU123456","baseCurrency":"CHF","navs":["1000.25",1015.5],
+				"startNAV":{"date":"20260930","val":995}
+			}]}
+		}`))
+	}))
+	defer server.Close()
+
+	history, err := NewClient(server.URL, false).FetchPortfolioNAVHistory(context.Background(), "DU123456", "1Y")
+	if err != nil {
+		t.Fatalf("FetchPortfolioNAVHistory() returned an error: %v", err)
+	}
+	if history.AccountID != "DU123456" || history.Frequency != "D" || len(history.Points) != 3 {
+		t.Fatalf("unexpected history: %+v", history)
+	}
+	if history.Points[0].Date.Format("2006-01-02") != "2026-09-30" || history.Points[2].Value != 1015.5 {
+		t.Fatalf("unexpected observations: %+v", history.Points)
+	}
+	for _, point := range history.Points {
+		if point.BaseCurrency != "CHF" || point.Source != "ibkr_portfolio_analyst" {
+			t.Fatalf("missing provenance: %+v", point)
+		}
+	}
+}
+
+func TestFetchPortfolioNAVHistoryRejectsMismatchedDates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"included":["DU123456"],
+			"nav":{"freq":"D","dates":["20261001"],"data":[{
+				"id":"DU123456","baseCurrency":"CHF","navs":[1000,1010]
+			}]}
+		}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, false).FetchPortfolioNAVHistory(context.Background(), "DU123456", "1Y")
+	if err == nil || !strings.Contains(err.Error(), "mismatched") {
+		t.Fatalf("expected mismatched history to fail, got %v", err)
+	}
+}
+
+func TestFetchPortfolioNAVHistoryFallsBackAcrossGatewayPeriodNames(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request portfolioPerformanceRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if requests == 1 {
+			if request.Period != "1Y" {
+				t.Fatalf("first period = %q, want 1Y", request.Period)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"Bad Request: Invalid period: 1Y"}`))
+			return
+		}
+		if request.Period != "12M" {
+			t.Fatalf("fallback period = %q, want 12M", request.Period)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"included":["DU123456"],
+			"nav":{"freq":"D","dates":["20261001"],"data":[{
+				"id":"DU123456","baseCurrency":"CHF","navs":[1000]
+			}]}
+		}`))
+	}))
+	defer server.Close()
+
+	history, err := NewClient(server.URL, false).FetchPortfolioNAVHistory(context.Background(), "DU123456", "1Y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(history.Points) != 1 {
+		t.Fatalf("unexpected fallback result: requests=%d history=%+v", requests, history)
+	}
+}
+
 func TestSearchStocksFiltersNonStocksAndOrdersExactTickerFirst(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/iserver/secdef/search" || r.URL.Query().Get("symbol") != "AA" {

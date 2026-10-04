@@ -4,10 +4,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"wails/ai"
@@ -19,6 +22,10 @@ import (
 	"wails/ibkr"
 	"wails/persistence"
 	"wails/portfolio"
+	"wails/portfolioanalysis"
+	"wails/portfoliohistory"
+	"wails/positionanalysis"
+	"wails/snaptradehistory"
 	"wails/stockanalysis"
 	"wails/trading"
 
@@ -30,6 +37,8 @@ type App struct {
 	ctx              context.Context
 	cfg              config.AppConfig
 	portfolioBroker  broker.PortfolioProvider
+	portfolioHistory broker.PortfolioHistoryProvider
+	snapTradeHistory snapTradeHistoryProvider
 	instrumentSearch broker.InstrumentSearchProvider
 	stockData        broker.StockDataProvider
 	sessionBroker    broker.SessionProvider
@@ -39,6 +48,23 @@ type App struct {
 	trading          *trading.Service
 	store            *persistence.Store
 	fundHoldings     *fundholdings.Service
+	historyMu        sync.RWMutex
+	historyAccountID string
+	historyImportMu  sync.Mutex
+	historyImports   map[string]historyImportState
+}
+
+type historyImportState struct {
+	attemptedAt        time.Time
+	warning            string
+	externalConfigured bool
+	connectionRequired bool
+}
+
+type snapTradeHistoryProvider interface {
+	Configured() bool
+	ConnectionPortalURL(context.Context) (string, error)
+	FetchPortfolioNAVHistory(context.Context, string) (portfoliohistory.NAVHistory, error)
 }
 
 // NewApp creates the Wails application object.
@@ -52,6 +78,7 @@ func NewApp() (*App, error) {
 		cfg.IBKR.BaseURL,
 		cfg.IBKR.SkipTLSVerifyLocal,
 	)
+	snapTradeHistory := snaptradehistory.NewClient(cfg.SnapTrade.ClientID, cfg.SnapTrade.ConsumerKey, nil)
 
 	var aiProvider ai.Provider
 	switch cfg.AI.Provider {
@@ -90,6 +117,8 @@ func NewApp() (*App, error) {
 	return &App{
 		cfg:              cfg,
 		portfolioBroker:  client,
+		portfolioHistory: client,
+		snapTradeHistory: snapTradeHistory,
 		instrumentSearch: client,
 		stockData:        client,
 		sessionBroker:    client,
@@ -99,6 +128,7 @@ func NewApp() (*App, error) {
 		trading:          tradingService,
 		store:            store,
 		fundHoldings:     fundHoldingsService,
+		historyImports:   make(map[string]historyImportState),
 	}, nil
 }
 
@@ -231,6 +261,10 @@ func (a *App) KeepSessionAlive() SessionStatusView {
 // Logout ends the IBKR session and returns the authentication-required state.
 func (a *App) Logout() (SessionStatusView, error) {
 	a.trading.Reset()
+	a.setHistoryAccount("")
+	a.historyImportMu.Lock()
+	a.historyImports = make(map[string]historyImportState)
+	a.historyImportMu.Unlock()
 	if err := a.sessionBroker.Logout(a.context()); err != nil {
 		return toSessionStatusView(a.checkSession()), err
 	}
@@ -241,6 +275,146 @@ func (a *App) Logout() (SessionStatusView, error) {
 	}), nil
 }
 
+// GetPortfolioHistory refreshes and returns bounded portfolio history for the active account.
+func (a *App) GetPortfolioHistory(timeRange string) (PortfolioHistoryView, error) {
+	result, err := a.loadPortfolioHistory(timeRange)
+	if err != nil {
+		return PortfolioHistoryView{}, err
+	}
+	return toPortfolioHistoryView(timeRange, result), nil
+}
+
+// loadPortfolioHistory keeps the displayed history and counselor summary on one normalized path.
+func (a *App) loadPortfolioHistory(timeRange string) (portfoliohistory.Result, error) {
+	if a.store == nil {
+		return portfoliohistory.Result{}, fmt.Errorf("portfolio history is unavailable while generating bindings")
+	}
+	to := time.Now().UTC()
+	from, err := portfolioHistoryStart(timeRange, to)
+	if err != nil {
+		return portfoliohistory.Result{}, err
+	}
+	accountID := a.getHistoryAccount()
+	if accountID == "" {
+		return portfoliohistory.Result{}, fmt.Errorf("load the current portfolio before requesting its history")
+	}
+	importState := a.syncPortfolioNAVHistory(accountID, to)
+	result, err := a.store.QueryPortfolioHistory(a.context(), accountID, portfoliohistory.Query{
+		From: from, To: to, MaxPoints: portfoliohistory.MaxPoints,
+	})
+	if err != nil {
+		return portfoliohistory.Result{}, err
+	}
+	result.ImportWarning = importState.warning
+	result.ExternalConfigured = importState.externalConfigured
+	result.ConnectionRequired = importState.connectionRequired
+	return result, nil
+}
+
+// GetPortfolioHistorySummary explains the selected saved-history range without calculating investment returns.
+func (a *App) GetPortfolioHistorySummary(timeRange string) (AIResponseView, error) {
+	result, err := a.loadPortfolioHistory(timeRange)
+	if err != nil {
+		return AIResponseView{}, err
+	}
+	response, err := a.aiCounselor.PortfolioHistorySummary(a.context(), result)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("portfolio history summary failed: %w", err)
+	}
+	return toAIResponseView(response, a.aiProviderName), nil
+}
+
+// OpenPortfolioHistoryConnection opens SnapTrade's hosted portal with read-only access.
+func (a *App) OpenPortfolioHistoryConnection() error {
+	if a.ctx == nil {
+		return fmt.Errorf("application is not ready to open the browser")
+	}
+	if a.snapTradeHistory == nil || !a.snapTradeHistory.Configured() {
+		return fmt.Errorf("SnapTrade Personal API credentials are not configured")
+	}
+	connectionURL, err := a.snapTradeHistory.ConnectionPortalURL(a.context())
+	if err != nil {
+		return err
+	}
+	a.historyImportMu.Lock()
+	delete(a.historyImports, a.getHistoryAccount())
+	a.historyImportMu.Unlock()
+	runtime.BrowserOpenURL(a.ctx, connectionURL)
+	return nil
+}
+
+// syncPortfolioNAVHistory respects IBKR pacing and keeps import failures separate from local history access.
+func (a *App) syncPortfolioNAVHistory(accountID string, now time.Time) historyImportState {
+	const minimumImportInterval = 15 * time.Minute
+	const externalImportInterval = 6 * time.Hour
+
+	a.historyImportMu.Lock()
+	defer a.historyImportMu.Unlock()
+	if state, ok := a.historyImports[accountID]; ok && now.Sub(state.attemptedAt) < minimumImportInterval {
+		return state
+	}
+	state := historyImportState{attemptedAt: now, externalConfigured: a.snapTradeHistory != nil && a.snapTradeHistory.Configured()}
+	a.historyImports[accountID] = state
+
+	recent, err := a.store.PortfolioNAVHistoryImportedRecently(a.context(), accountID, portfoliohistory.SourceIBKRPortfolioAnalyst, now.Add(-minimumImportInterval))
+	if err != nil {
+		state.warning = "Saved IBKR history could not be checked: " + safeHistoryError(err, accountID)
+		a.historyImports[accountID] = state
+		return state
+	}
+	if recent {
+		return state
+	}
+	var ibkrWarning string
+	if a.portfolioHistory == nil {
+		ibkrWarning = "IBKR portfolio performance history is unavailable in this application configuration."
+	} else {
+		history, fetchErr := a.portfolioHistory.FetchPortfolioNAVHistory(a.context(), accountID, "1Y")
+		if fetchErr == nil {
+			if saveErr := a.store.SavePortfolioNAVHistory(a.context(), history); saveErr == nil {
+				a.historyImports[accountID] = state
+				return state
+			} else {
+				ibkrWarning = "IBKR portfolio performance history could not be saved: " + safeHistoryError(saveErr, accountID)
+			}
+		} else {
+			ibkrWarning = "IBKR portfolio performance history could not be refreshed: " + safeHistoryError(fetchErr, accountID)
+		}
+	}
+
+	if !state.externalConfigured {
+		state.warning = ibkrWarning + " Configure SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY to enable detailed estimated history."
+		a.historyImports[accountID] = state
+		return state
+	}
+	externalRecent, err := a.store.PortfolioNAVHistoryImportedRecently(a.context(), accountID, portfoliohistory.SourceSnapTradeBalanceHistory, now.Add(-externalImportInterval))
+	if err != nil {
+		state.warning = ibkrWarning + " Saved SnapTrade history could not be checked: " + safeHistoryError(err, accountID)
+		a.historyImports[accountID] = state
+		return state
+	}
+	if externalRecent {
+		state.warning = ibkrWarning + " Showing the most recently saved estimated SnapTrade history."
+		a.historyImports[accountID] = state
+		return state
+	}
+	externalHistory, err := a.snapTradeHistory.FetchPortfolioNAVHistory(a.context(), accountID)
+	if err != nil {
+		state.connectionRequired = errors.Is(err, snaptradehistory.ErrConnectionRequired)
+		state.warning = ibkrWarning + " SnapTrade history could not be refreshed: " + safeHistoryError(err, accountID)
+		a.historyImports[accountID] = state
+		return state
+	}
+	if err := a.store.SavePortfolioNAVHistory(a.context(), externalHistory); err != nil {
+		state.warning = ibkrWarning + " SnapTrade history could not be saved: " + safeHistoryError(err, accountID)
+		a.historyImports[accountID] = state
+		return state
+	}
+	state.warning = ibkrWarning + " Showing estimated SnapTrade account history because IBKR PortfolioAnalyst is unavailable."
+	a.historyImports[accountID] = state
+	return state
+}
+
 // GetPortfolio fetches the current broker portfolio and returns its deterministic analytics.
 func (a *App) GetPortfolio() (PortfolioView, error) {
 	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio()
@@ -248,6 +422,47 @@ func (a *App) GetPortfolio() (PortfolioView, error) {
 		return PortfolioView{}, err
 	}
 	return toPortfolioView(portfolioSnapshot, portfolioAnalytics), nil
+}
+
+// GetPortfolioRiskAnalysis calculates modeled risk from current exposures and broker price history.
+func (a *App) GetPortfolioRiskAnalysis() (PortfolioRiskAnalysisView, error) {
+	_, result, err := a.calculatePortfolioRisk()
+	if err != nil {
+		return PortfolioRiskAnalysisView{}, err
+	}
+	return toPortfolioRiskAnalysisView(result), nil
+}
+
+// GetPortfolioRiskCounsel calculates fresh risk and returns its grounded counselor explanation.
+func (a *App) GetPortfolioRiskCounsel() (PortfolioRiskCounselView, error) {
+	_, result, err := a.calculatePortfolioRisk()
+	if err != nil {
+		return PortfolioRiskCounselView{}, err
+	}
+	response, err := a.aiCounselor.PortfolioRisk(a.context(), result)
+	if err != nil {
+		return PortfolioRiskCounselView{}, fmt.Errorf("portfolio risk counseling failed: %w", err)
+	}
+	return PortfolioRiskCounselView{Analysis: toPortfolioRiskAnalysisView(result), Response: toAIResponseView(response, a.aiProviderName)}, nil
+}
+
+// calculatePortfolioRisk keeps the displayed calculation and counselor input on one normalized path.
+func (a *App) calculatePortfolioRisk() (portfolio.Portfolio, portfolioanalysis.Result, error) {
+	snapshot, current, err := a.fetchPortfolio()
+	if err != nil {
+		return portfolio.Portfolio{}, portfolioanalysis.Result{}, err
+	}
+	histories := make(map[int64]portfolio.StockHistory)
+	for _, position := range snapshot.Positions {
+		if position.Instrument.ContractID <= 0 || !strings.EqualFold(position.Instrument.AssetClass, "STK") {
+			continue
+		}
+		history, historyErr := a.stockData.FetchStockHistory(a.context(), position.Instrument.ContractID, "1y")
+		if historyErr == nil {
+			histories[position.Instrument.ContractID] = history
+		}
+	}
+	return snapshot, portfolioanalysis.Calculate(snapshot, current, histories, time.Now()), nil
 }
 
 // SearchStocks returns matching stock contracts for the dashboard ticker search.
@@ -396,6 +611,51 @@ func (a *App) GetStockNews(contractID int64) (AIResponseView, error) {
 	return toAIResponseView(response, a.aiProviderName), nil
 }
 
+// GetPositionRiskAnalysis explains deterministic risk facts for one current stock holding.
+func (a *App) GetPositionRiskAnalysis(contractID int64) (AIResponseView, error) {
+	if contractID <= 0 {
+		return AIResponseView{}, fmt.Errorf("a valid stock contract ID is required")
+	}
+	snapshot, current, err := a.fetchPortfolio()
+	if err != nil {
+		return AIResponseView{}, err
+	}
+	var selected *portfolio.Position
+	var weight analytics.Ratio
+	for index := range snapshot.Positions {
+		if snapshot.Positions[index].Instrument.ContractID == contractID {
+			selected = &snapshot.Positions[index]
+			break
+		}
+	}
+	for _, item := range current.PositionWeights {
+		if item.ContractID == contractID {
+			weight = item.Weight
+			break
+		}
+	}
+	if selected == nil {
+		return AIResponseView{}, fmt.Errorf("position risk is available only for a current holding")
+	}
+	stockSnapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("load current stock data for position risk: %w", err)
+	}
+	history, err := a.stockData.FetchStockHistory(a.context(), contractID, "1y")
+	if err != nil {
+		history = portfolio.StockHistory{Range: "1y", UnavailableReason: fmt.Sprintf("IBKR price history was unavailable: %v", err)}
+	}
+	result, err := positionanalysis.Calculate(stockSnapshot, history, *selected, weight, time.Now())
+	if err != nil {
+		return AIResponseView{}, err
+	}
+	response, err := a.aiCounselor.PositionRisk(a.context(), result)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("position risk analysis failed: %w", err)
+	}
+	return toAIResponseView(response, a.aiProviderName), nil
+}
+
 // GetPortfolioResume generates a read-only summary from the latest normalized positions.
 func (a *App) GetPortfolioResume() (AIResponseView, error) {
 	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio()
@@ -405,6 +665,45 @@ func (a *App) GetPortfolioResume() (AIResponseView, error) {
 	response, err := a.aiCounselor.PortfolioResume(a.context(), portfolioSnapshot, portfolioAnalytics)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio summary failed: %w", err)
+	}
+	return toAIResponseView(response, a.aiProviderName), nil
+}
+
+// GetCurrencyExposureAnalysis explains deterministic currency allocations and conversion provenance.
+func (a *App) GetCurrencyExposureAnalysis() (AIResponseView, error) {
+	snapshot, result, err := a.fetchPortfolio()
+	if err != nil {
+		return AIResponseView{}, err
+	}
+	response, err := a.aiCounselor.CurrencyExposure(a.context(), snapshot, result)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("currency exposure analysis failed: %w", err)
+	}
+	return toAIResponseView(response, a.aiProviderName), nil
+}
+
+// GetDiversificationAnalysis explains direct and effective look-through diversification.
+func (a *App) GetDiversificationAnalysis() (AIResponseView, error) {
+	snapshot, result, err := a.fetchPortfolio()
+	if err != nil {
+		return AIResponseView{}, err
+	}
+	response, err := a.aiCounselor.EffectiveDiversification(a.context(), snapshot, result)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("diversification analysis failed: %w", err)
+	}
+	return toAIResponseView(response, a.aiProviderName), nil
+}
+
+// GetPortfolioDataQualityAudit explains metric availability and source-coverage limitations.
+func (a *App) GetPortfolioDataQualityAudit() (AIResponseView, error) {
+	snapshot, result, err := a.fetchPortfolio()
+	if err != nil {
+		return AIResponseView{}, err
+	}
+	response, err := a.aiCounselor.PortfolioDataQuality(a.context(), snapshot, result)
+	if err != nil {
+		return AIResponseView{}, fmt.Errorf("portfolio data-quality audit failed: %w", err)
 	}
 	return toAIResponseView(response, a.aiProviderName), nil
 }
@@ -447,7 +746,46 @@ func (a *App) fetchPortfolio() (portfolio.Portfolio, analytics.Result, error) {
 			return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("persist portfolio snapshot: %w", err)
 		}
 	}
+	a.setHistoryAccount(portfolioSnapshot.AccountSummary.AccountID)
 	return portfolioSnapshot, portfolioAnalytics, nil
+}
+
+func (a *App) setHistoryAccount(accountID string) {
+	a.historyMu.Lock()
+	a.historyAccountID = accountID
+	a.historyMu.Unlock()
+}
+
+func (a *App) getHistoryAccount() string {
+	a.historyMu.RLock()
+	defer a.historyMu.RUnlock()
+	return a.historyAccountID
+}
+
+func portfolioHistoryStart(value string, to time.Time) (time.Time, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "7d":
+		return to.Add(-7 * 24 * time.Hour), nil
+	case "30d":
+		return to.Add(-30 * 24 * time.Hour), nil
+	case "90d":
+		return to.Add(-90 * 24 * time.Hour), nil
+	case "1y":
+		return to.AddDate(-1, 0, 0), nil
+	default:
+		return time.Time{}, fmt.Errorf("unsupported portfolio history range %q", value)
+	}
+}
+
+func safeHistoryError(err error, accountID string) string {
+	if err == nil {
+		return "unknown error"
+	}
+	message := strings.Join(strings.Fields(err.Error()), " ")
+	if accountID = strings.TrimSpace(accountID); accountID != "" {
+		message = regexp.MustCompile(`(?i)`+regexp.QuoteMeta(accountID)).ReplaceAllString(message, "[redacted account]")
+	}
+	return message
 }
 
 func (a *App) context() context.Context {

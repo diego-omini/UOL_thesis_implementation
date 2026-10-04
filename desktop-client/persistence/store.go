@@ -58,6 +58,8 @@ func Open(path string) (*Store, error) {
 	}
 	if err := database.AutoMigrate(
 		&PortfolioSnapshotRecord{},
+		&PortfolioNAVHistoryRecord{},
+		&PortfolioNAVImportRecord{},
 		&PromptExecutionRecord{},
 		&EvaluationOutputRecord{},
 		&OrderAuditRecord{},

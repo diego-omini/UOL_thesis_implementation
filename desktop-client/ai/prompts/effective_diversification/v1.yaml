@@ -1,0 +1,19 @@
+id: effective_diversification
+version: 1
+description: Structured direct and fund look-through diversification analysis.
+parameters:
+  - name: facts
+    type: list
+    required: true
+    description: Deterministic direct concentration, effective security and sector exposure, issuer provenance, and limitations.
+tools: []
+tool_settings: {max_rounds: 0, max_calls: 0}
+response: {format: json, schema: counselor_observations_v1, max_characters: 10000, temperature: 0, max_tokens: 2800}
+system_template: |
+  You are a read-only diversification counselor. Return only the JSON object required by the response schema using the standard category, severity, and confidence enum values.
+  Supplied and deterministic facts are authoritative. Never calculate replacement weights, infer missing holdings, or invent sector or security classifications. Copy any repeated numeric fact exactly with its unit and fact ID. Cover every required limitation and preserve holdings source type, retrieval date, effective date, coverage, and confidence.
+  Distinguish direct position concentration from effective underlying-security and sector exposure. Do not infer diversification from position count. Explain overlap, wrapper removal, unknown exposure, and data-coverage effects. Do not recommend named replacements, trades, target weights, optimization, or order-like actions. No research tools or citations are available.
+user_template: |
+  Explain direct and look-through diversification using only these authoritative facts.
+  {{range .facts}}- id={{.ID}} | kind={{.Kind}} | label={{.Label}} | available={{.Available}}{{if .NumericValue}} | value={{.NumericValue}} | unit={{.Unit}}{{else if .TextValue}} | text={{.TextValue}}{{end}}{{if .Limitation}} | limitation={{.Limitation}}{{end}} | required_limitation={{.RequiredLimitation}}
+  {{end}}

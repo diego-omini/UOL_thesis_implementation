@@ -103,6 +103,29 @@ func TestCounselorResponseRejectsUnsafeAuthorityClaim(t *testing.T) {
 	}
 }
 
+func TestCounselorResponseRejectsPrescriptiveAndOrderLikeGuidance(t *testing.T) {
+	for _, statement := range []string{
+		"You should buy more shares.",
+		"Use a target allocation for this holding.",
+		"Replace Fund A with Fund B.",
+		"Next, place an order after reviewing the risk.",
+	} {
+		response := validCounselorTestResponse()
+		response.Summary = statement
+		if _, errors := decodeAndValidateCounselorResponse(encodeCounselorTestResponse(t, response), counselorTestFacts(), nil); !containsValidationError(errors, "prohibited prescriptive") {
+			t.Fatalf("prescriptive guidance %q was not rejected: %v", statement, errors)
+		}
+	}
+}
+
+func TestCounselorResponseAllowsSafetyLimitations(t *testing.T) {
+	response := validCounselorTestResponse()
+	response.Summary = "This analysis does not set a target allocation and cannot place an order."
+	if _, errors := decodeAndValidateCounselorResponse(encodeCounselorTestResponse(t, response), counselorTestFacts(), nil); len(errors) != 0 {
+		t.Fatalf("safety limitation was rejected: %v", errors)
+	}
+}
+
 func TestCounselorResponseRejectsCitationOutsideResearchBoundary(t *testing.T) {
 	response := validCounselorTestResponse()
 	response.Observations[0].Category = CategorySourcedExternalEvidence

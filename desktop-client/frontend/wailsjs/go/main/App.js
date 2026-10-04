@@ -14,6 +14,14 @@ export function ConfirmOrder(arg1) {
   return window['go']['main']['App']['ConfirmOrder'](arg1);
 }
 
+export function GetCurrencyExposureAnalysis() {
+  return window['go']['main']['App']['GetCurrencyExposureAnalysis']();
+}
+
+export function GetDiversificationAnalysis() {
+  return window['go']['main']['App']['GetDiversificationAnalysis']();
+}
+
 export function GetOrderAnalysis(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetOrderAnalysis'](arg1, arg2, arg3);
 }
@@ -22,12 +30,36 @@ export function GetPortfolio() {
   return window['go']['main']['App']['GetPortfolio']();
 }
 
+export function GetPortfolioDataQualityAudit() {
+  return window['go']['main']['App']['GetPortfolioDataQualityAudit']();
+}
+
+export function GetPortfolioHistory(arg1) {
+  return window['go']['main']['App']['GetPortfolioHistory'](arg1);
+}
+
+export function GetPortfolioHistorySummary(arg1) {
+  return window['go']['main']['App']['GetPortfolioHistorySummary'](arg1);
+}
+
 export function GetPortfolioNews() {
   return window['go']['main']['App']['GetPortfolioNews']();
 }
 
 export function GetPortfolioResume() {
   return window['go']['main']['App']['GetPortfolioResume']();
+}
+
+export function GetPortfolioRiskAnalysis() {
+  return window['go']['main']['App']['GetPortfolioRiskAnalysis']();
+}
+
+export function GetPortfolioRiskCounsel() {
+  return window['go']['main']['App']['GetPortfolioRiskCounsel']();
+}
+
+export function GetPositionRiskAnalysis(arg1) {
+  return window['go']['main']['App']['GetPositionRiskAnalysis'](arg1);
 }
 
 export function GetSessionStatus() {
@@ -60,6 +92,10 @@ export function Logout() {
 
 export function OpenIBKRLogin() {
   return window['go']['main']['App']['OpenIBKRLogin']();
+}
+
+export function OpenPortfolioHistoryConnection() {
+  return window['go']['main']['App']['OpenPortfolioHistoryConnection']();
 }
 
 export function PreviewOrder(arg1, arg2, arg3) {

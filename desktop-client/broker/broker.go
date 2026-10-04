@@ -6,12 +6,18 @@ package broker
 import (
 	"context"
 	"wails/portfolio"
+	"wails/portfoliohistory"
 )
 
 // ConnectionStatus describes whether a broker connection is ready for portfolio access.
 type ConnectionStatus struct {
 	Connected bool
 	Message   string
+}
+
+// PortfolioHistoryProvider exposes broker-reported portfolio NAV history.
+type PortfolioHistoryProvider interface {
+	FetchPortfolioNAVHistory(ctx context.Context, accountID, period string) (portfoliohistory.NAVHistory, error)
 }
 
 // SessionState identifies the current stage of the broker authentication flow.
