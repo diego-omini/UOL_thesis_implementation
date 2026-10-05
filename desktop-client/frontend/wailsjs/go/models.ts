@@ -134,6 +134,8 @@ export namespace main {
 	    Model: string;
 	    PromptID: string;
 	    PromptVersion: number;
+	    CreatedAt: string;
+	    ContextAsOf: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AIResponseView(source);
@@ -148,6 +150,8 @@ export namespace main {
 	        this.Model = source["Model"];
 	        this.PromptID = source["PromptID"];
 	        this.PromptVersion = source["PromptVersion"];
+	        this.CreatedAt = source["CreatedAt"];
+	        this.ContextAsOf = source["ContextAsOf"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1103,6 +1107,38 @@ export namespace main {
 	
 	
 	
+	export class RecentAnalysisView {
+	    ID: number;
+	    Response: AIResponseView;
+	
+	    static createFrom(source: any = {}) {
+	        return new RecentAnalysisView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ID = source["ID"];
+	        this.Response = this.convertValues(source["Response"], AIResponseView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class SessionStatusView {
 	    State: string;

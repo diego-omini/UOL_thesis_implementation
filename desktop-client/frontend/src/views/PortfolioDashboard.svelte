@@ -1,84 +1,23 @@
 <script lang="ts">
   // PortfolioDashboard.svelte presents analytics, positions, and read-only counselor actions.
-  import { createEventDispatcher, onDestroy } from 'svelte'
-  import { GetCurrencyExposureAnalysis, GetDiversificationAnalysis, GetPortfolioDataQualityAudit, GetPortfolioNews, GetPortfolioResume } from '../../wailsjs/go/main/App.js'
-  import CounselorAction from '../components/CounselorAction.svelte'
-  import CounselorResponse from '../components/CounselorResponse.svelte'
+  import { createEventDispatcher } from 'svelte'
+  import CounselorWorkspace from '../components/CounselorWorkspace.svelte'
   import PortfolioHistory from '../components/PortfolioHistory.svelte'
   import PortfolioRiskAnalysis from '../components/PortfolioRiskAnalysis.svelte'
   import {
     formatDate,
-    formatError,
     formatExchangeRate,
     formatMoney,
     formatNumber,
     formatPercent,
     formatRatio,
   } from '../lib/format'
-  import type { AIResponseView, PortfolioView, PositionView } from '../lib/types'
-  import { workflowCopy } from '../lib/counselor-workflows'
+  import type { PortfolioView, PositionView } from '../lib/types'
 
   export let portfolio: PortfolioView
 
   const dispatch = createEventDispatcher<{ stock: PositionView; sessionIssue: void }>()
 
-  let portfolioResume: AIResponseView | null = null
-  let portfolioResumeError = ''
-  let portfolioResumeLoading = false
-  let portfolioNews: AIResponseView | null = null
-  let portfolioNewsError = ''
-  let portfolioNewsLoading = false
-  let positionsPromptsOpen = false
-  let analysisSequence = 0
-
-  onDestroy(() => analysisSequence++)
-
-  function resetAnalysisState(): void {
-    portfolioResume = null
-    portfolioResumeError = ''
-    portfolioResumeLoading = false
-    portfolioNews = null
-    portfolioNewsError = ''
-    portfolioNewsLoading = false
-  }
-
-  // getPortfolioResume rejects a response when this dashboard generation is no longer active.
-  async function getPortfolioResume(): Promise<void> {
-    const sequence = ++analysisSequence
-    positionsPromptsOpen = false
-    resetAnalysisState()
-    portfolioResumeLoading = true
-    try {
-      const response = await GetPortfolioResume()
-      if (sequence === analysisSequence) portfolioResume = response
-    } catch (error) {
-      if (sequence === analysisSequence) {
-        portfolioResumeError = formatError(error)
-        dispatch('sessionIssue')
-      }
-    } finally {
-      if (sequence === analysisSequence) portfolioResumeLoading = false
-    }
-  }
-
-  // getPortfolioNews rejects a response when this dashboard generation is no longer active.
-  async function getPortfolioNews(): Promise<void> {
-    const sequence = ++analysisSequence
-    positionsPromptsOpen = false
-    resetAnalysisState()
-    portfolioNewsLoading = true
-    try {
-      const response = await GetPortfolioNews()
-      if (sequence === analysisSequence) portfolioNews = response
-    } catch (error) {
-      if (sequence === analysisSequence) {
-        portfolioNewsError = formatError(error)
-        dispatch('sessionIssue')
-      }
-    } finally {
-      if (sequence === analysisSequence) portfolioNewsLoading = false
-    }
-  }
 </script>
 
 <section class="summary-grid" aria-label="Account summary">
@@ -104,6 +43,12 @@
   <article class="metric"><span>Concentration index</span><strong>{formatRatio(portfolio.Analytics.HHI)}</strong></article>
 </section>
 
+<CounselorWorkspace
+  positionCount={portfolio.Positions.length}
+  currentPortfolioAsOf={portfolio.Analytics.CalculatedAt}
+  on:sessionIssue={() => dispatch('sessionIssue')}
+/>
+
 <PortfolioHistory />
 <PortfolioRiskAnalysis on:sessionIssue={() => dispatch('sessionIssue')} />
 
@@ -120,16 +65,6 @@
     {/each}
   </section>
 {/if}
-
-<section class="focused-counselor" aria-label="Portfolio data-quality counselor">
-  <CounselorAction
-    workflow={workflowCopy('portfolio_data_quality')}
-    action={GetPortfolioDataQualityAudit}
-    disabled={portfolio.Empty}
-    resetOn={portfolio.Analytics.CalculatedAt}
-    on:sessionIssue={() => dispatch('sessionIssue')}
-  />
-</section>
 
 {#if portfolio.Analytics.Warnings.length > 0}
   <section class="warning" aria-label="Portfolio data warnings">
@@ -168,25 +103,6 @@
         <div class="allocation-row"><span>{position.Symbol || position.Name || '-'}</span><strong>{formatPercent(position.Weight)}</strong><small>{formatMoney(position.MarketValue)}</small></div>
       {/each}
     </article>
-  </section>
-  <section class="focused-counselor" aria-label="Currency exposure counselor">
-    <CounselorAction
-      workflow={workflowCopy('currency_exposure')}
-      action={GetCurrencyExposureAnalysis}
-      resetOn={portfolio.Analytics.CalculatedAt}
-      on:sessionIssue={() => dispatch('sessionIssue')}
-    />
-  </section>
-{/if}
-
-{#if !portfolio.Empty}
-  <section class="focused-counselor" aria-label="Effective diversification counselor">
-    <CounselorAction
-      workflow={workflowCopy('effective_diversification')}
-      action={GetDiversificationAnalysis}
-      resetOn={portfolio.Analytics.CalculatedAt}
-      on:sessionIssue={() => dispatch('sessionIssue')}
-    />
   </section>
 {/if}
 
@@ -252,32 +168,7 @@
 <section class="table-section" aria-label="Positions">
   <div class="section-heading">
     <div class="section-title"><h2>Positions</h2><span>{portfolio.Positions.length} open</span></div>
-    <details class="prompt-dropdown" bind:open={positionsPromptsOpen}>
-      <summary>Positions prompts</summary>
-      <div class="prompt-menu">
-        <button disabled={portfolio.Empty || portfolioResumeLoading || portfolioNewsLoading} on:click={getPortfolioResume}>
-          {portfolioResumeLoading ? 'Generating portfolio resume...' : 'Get portfolio resume'}
-        </button>
-        <button disabled={portfolio.Empty || portfolioResumeLoading || portfolioNewsLoading} on:click={getPortfolioNews}>
-          {portfolioNewsLoading ? 'Researching portfolio news...' : 'Get portfolio news'}
-        </button>
-      </div>
-    </details>
   </div>
-
-  {#if portfolioResumeLoading || portfolioNewsLoading}
-    <div class="ai-status" role="status" aria-live="polite">
-      {portfolioNewsLoading ? 'Researching the latest news for every position...' : 'Waiting for the configured AI provider...'}
-    </div>
-  {:else if portfolioNewsError}
-    <div class="ai-error" role="alert" aria-live="assertive"><strong>Portfolio news unavailable</strong><span>{portfolioNewsError}</span></div>
-  {:else if portfolioResumeError}
-    <div class="ai-error" role="alert" aria-live="assertive"><strong>Portfolio resume unavailable</strong><span>{portfolioResumeError}</span></div>
-  {:else if portfolioNews}
-    <CounselorResponse response={portfolioNews} />
-  {:else if portfolioResume}
-    <CounselorResponse response={portfolioResume} />
-  {/if}
 
   {#if portfolio.Empty}
     <div class="empty-state"><strong>No open positions</strong><span>The authenticated paper account has no holdings to display.</span></div>
@@ -319,7 +210,6 @@
   .analytics-heading,
   .allocation-grid,
   .warning,
-  .focused-counselor,
   .exchange-rates,
   .look-through-quality,
   .table-section {
@@ -357,7 +247,6 @@
   .analytics-heading span { color: #5d6a7a; font-size: 13px; }
 
   .warning,
-  .focused-counselor,
   .exchange-rates,
   .empty-state {
     display: grid;
@@ -369,7 +258,6 @@
   }
 
   .warning { border-color: #c98716; }
-  .focused-counselor { border-color: #4a7c91; }
   .warning ul { margin: 2px 0 0; padding-left: 20px; color: #5d6a7a; }
   .exchange-rates { border-color: #7a8797; }
   .exchange-rates div { display: flex; justify-content: space-between; gap: 16px; }
@@ -410,19 +298,6 @@
   .section-title { display: flex; align-items: baseline; gap: 10px; }
   .section-title span { color: #5d6a7a; font-size: 14px; }
 
-  .prompt-dropdown { position: relative; }
-  .prompt-dropdown summary { min-height: 38px; padding: 0 34px 0 14px; border: 1px solid #b8c4cf; border-radius: 4px; background: white; color: #293646; font-size: 14px; font-weight: 700; line-height: 36px; cursor: pointer; list-style: none; user-select: none; }
-  .prompt-dropdown summary::-webkit-details-marker { display: none; }
-  .prompt-dropdown summary::after { position: absolute; top: 16px; right: 14px; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; content: ''; transform: rotate(45deg); }
-  .prompt-dropdown[open] summary::after { top: 20px; transform: rotate(225deg); }
-  .prompt-menu { position: absolute; z-index: 2; top: calc(100% + 6px); right: 0; min-width: 230px; padding: 6px; border: 1px solid #d8e0e8; border-radius: 4px; background: white; box-shadow: 0 8px 22px rgb(36 52 68 / 16%); }
-  .prompt-menu button { width: 100%; padding: 10px 12px; border: 0; border-radius: 3px; background: transparent; color: #293646; font: inherit; font-size: 14px; font-weight: 700; text-align: left; cursor: pointer; }
-  .prompt-menu button:hover:not(:disabled), .prompt-menu button:focus-visible { background: #edf5f8; color: #14566e; }
-  .prompt-menu button:disabled { cursor: wait; opacity: 0.55; }
-
-  .ai-status,
-  .ai-error { margin-top: 16px; padding: 14px 16px; border-left: 4px solid #1f6f8b; background: #f5f9fb; color: #5d6a7a; line-height: 1.55; }
-  .ai-error { display: grid; gap: 4px; border-color: #c2414b; background: #fff7f7; }
 
   .table-wrap { overflow-x: auto; }
   table { width: 100%; min-width: 900px; border-collapse: collapse; }
@@ -443,7 +318,5 @@
   @media (max-width: 780px) {
     .summary-grid, .allocation-grid { grid-template-columns: 1fr; }
     .analytics-heading, .section-heading { align-items: stretch; flex-direction: column; }
-    .prompt-dropdown summary { width: 100%; box-sizing: border-box; }
-    .prompt-menu { right: auto; left: 0; width: 100%; box-sizing: border-box; }
   }
 </style>

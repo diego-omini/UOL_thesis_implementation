@@ -189,11 +189,189 @@ func decodeAndValidateCounselorResponse(text string, facts []CounselorFact, tool
 	if err := ensureCounselorJSONEnd(decoder); err != nil {
 		return nil, []string{err.Error()}
 	}
+	normalizeCounselorResponse(&response, facts, tools)
 	errors := validateCounselorResponse(response, facts, tools)
 	if len(errors) > 0 {
 		return nil, errors
 	}
 	return &response, nil
+}
+
+// DecodeStoredCounselorResponse accepts only a complete, safe structured response from a previously validated execution.
+func DecodeStoredCounselorResponse(text string) (*CounselorResponse, error) {
+	decoder := json.NewDecoder(bytes.NewBufferString(strings.TrimSpace(text)))
+	decoder.DisallowUnknownFields()
+	var response CounselorResponse
+	if err := decoder.Decode(&response); err != nil {
+		return nil, fmt.Errorf("decode stored counselor response: %w", err)
+	}
+	if err := ensureCounselorJSONEnd(decoder); err != nil {
+		return nil, err
+	}
+	if response.SchemaVersion != counselorSchemaVersion || strings.TrimSpace(response.Summary) == "" || len(response.Observations) == 0 || len(response.Limitations) == 0 {
+		return nil, fmt.Errorf("stored counselor response is incomplete")
+	}
+	allText := []string{response.Summary}
+	for index, observation := range response.Observations {
+		if !validCategory(observation.Category) || !validSeverity(observation.Severity) || !validConfidence(observation.Confidence) || strings.TrimSpace(observation.Statement) == "" || strings.TrimSpace(observation.Explanation) == "" {
+			return nil, fmt.Errorf("stored counselor observation %d is invalid", index)
+		}
+		allText = append(allText, observation.Statement, observation.Explanation, strings.Join(observation.Limitations, " "))
+		for _, citation := range observation.Citations {
+			parsed, err := url.Parse(strings.TrimSpace(citation.URL))
+			if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+				return nil, fmt.Errorf("stored counselor observation %d has an invalid citation", index)
+			}
+		}
+	}
+	for index, limitation := range response.Limitations {
+		if strings.TrimSpace(limitation.Statement) == "" {
+			return nil, fmt.Errorf("stored counselor limitation %d is empty", index)
+		}
+		allText = append(allText, limitation.Statement)
+	}
+	joined := strings.Join(allText, " ")
+	if unsafeAuthorityClaim(joined) != "" || unsafeAdviceClaim(joined) != "" {
+		return nil, fmt.Errorf("stored counselor response violates the read-only safety boundary")
+	}
+	return &response, nil
+}
+
+// normalizeCounselorResponse repairs representation-only mistakes without changing claims or values.
+func normalizeCounselorResponse(response *CounselorResponse, facts []CounselorFact, tools map[string]Tool) {
+	if response == nil {
+		return
+	}
+	factByID := make(map[string]CounselorFact, len(facts))
+	for _, fact := range facts {
+		factByID[fact.ID] = fact
+	}
+	observations := make([]CounselorObservation, 0, len(response.Observations))
+	for index := range response.Observations {
+		observation := &response.Observations[index]
+		if strings.TrimSpace(observation.Statement) == "" || strings.TrimSpace(observation.Explanation) == "" {
+			continue
+		}
+		observation.SupportingFactIDs = normalizeFactIDs(observation.SupportingFactIDs)
+		reportedValues := make([]ReportedValue, 0, len(observation.ReportedValues))
+		for valueIndex := range observation.ReportedValues {
+			value := observation.ReportedValues[valueIndex]
+			value.FactID = normalizeFactID(value.FactID)
+			fact, known := factByID[value.FactID]
+			if !known || !fact.Available || fact.NumericValue == nil {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(value.Unit)) {
+			case "%", "percentage", "percentages":
+				value.Unit = "percent"
+			case "percentage point", "percentage points", "percentage_point":
+				value.Unit = "percentage_points"
+			}
+			if value.FactID != "" && !containsString(observation.SupportingFactIDs, value.FactID) {
+				observation.SupportingFactIDs = append(observation.SupportingFactIDs, value.FactID)
+			}
+			reportedValues = append(reportedValues, value)
+		}
+		observation.ReportedValues = reportedValues
+		normalizeObservationCategory(observation, factByID, tools)
+		observations = append(observations, *observation)
+	}
+	response.Observations = observations
+	coveredLimitations := map[string]bool{}
+	for index := range response.Limitations {
+		factIDs := normalizeFactIDs(response.Limitations[index].FactIDs)
+		response.Limitations[index].FactIDs = response.Limitations[index].FactIDs[:0]
+		for _, factID := range factIDs {
+			if _, known := factByID[factID]; known {
+				response.Limitations[index].FactIDs = append(response.Limitations[index].FactIDs, factID)
+			}
+		}
+		for _, factID := range response.Limitations[index].FactIDs {
+			coveredLimitations[factID] = true
+		}
+	}
+	for _, fact := range facts {
+		if fact.RequiredLimitation && !coveredLimitations[fact.ID] {
+			statement := strings.TrimSpace(fact.Limitation)
+			if statement == "" {
+				statement = fact.Label + " is unavailable or incomplete."
+			}
+			response.Limitations = append(response.Limitations, CounselorLimitation{Statement: statement, FactIDs: []string{fact.ID}})
+		}
+	}
+	if len(response.Limitations) == 0 {
+		response.Limitations = []CounselorLimitation{{Statement: "This explanation is limited to the application-supplied facts and their timestamps.", FactIDs: []string{}}}
+	}
+}
+
+func normalizeObservationCategory(observation *CounselorObservation, facts map[string]CounselorFact, tools map[string]Tool) {
+	if observation == nil || len(observation.SupportingFactIDs) == 0 {
+		return
+	}
+	hasSupplied := false
+	hasDeterministic := false
+	hasUnavailable := false
+	for _, factID := range observation.SupportingFactIDs {
+		fact, ok := facts[factID]
+		if !ok {
+			continue
+		}
+		switch ObservationCategory(fact.Kind) {
+		case CategorySuppliedFact:
+			hasSupplied = true
+		case CategoryDeterministicDerivedFact:
+			hasDeterministic = true
+		case CategoryUnavailableInformation:
+			hasUnavailable = true
+		}
+	}
+	if hasUnavailable {
+		observation.Category = CategoryUnavailableInformation
+		return
+	}
+	if observation.Category == CategorySourcedExternalEvidence && (len(tools) == 0 || len(observation.Citations) == 0) {
+		observation.Citations = nil
+		observation.Category = CategoryInterpretation
+	}
+	if observation.Category != CategorySuppliedFact && observation.Category != CategoryDeterministicDerivedFact && observation.Category != CategoryUnavailableInformation {
+		return
+	}
+	if hasSupplied && !hasDeterministic {
+		observation.Category = CategorySuppliedFact
+	} else if hasDeterministic && !hasSupplied {
+		observation.Category = CategoryDeterministicDerivedFact
+	} else {
+		observation.Category = CategoryInterpretation
+	}
+}
+
+func normalizeFactIDs(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = normalizeFactID(value)
+		if value != "" && !containsString(result, value) {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func normalizeFactID(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "id=")
+	if separator := strings.Index(value, " |"); separator >= 0 {
+		value = value[:separator]
+	}
+	return strings.TrimSpace(value)
+}
+
+func containsString(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureCounselorJSONEnd(decoder *json.Decoder) error {

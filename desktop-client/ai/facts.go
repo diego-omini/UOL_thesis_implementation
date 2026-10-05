@@ -157,11 +157,15 @@ func fundLookThroughFacts(results []portfolio.FundHoldings) []CounselorFact {
 	facts := make([]CounselorFact, 0)
 	for index, result := range results {
 		prefix := positionFactPrefix(result.Fund, index) + ".look_through"
-		facts = append(facts,
-			textFact(prefix+".source_type", CategorySuppliedFact, "Fund holdings source type", result.SourceType),
-			textFact(prefix+".source_url", CategorySuppliedFact, "Fund holdings source URL", result.SourceURL),
-			textFact(prefix+".confidence", CategorySuppliedFact, "Fund holdings confidence", result.Confidence),
-		)
+		if strings.TrimSpace(result.SourceType) != "" {
+			facts = append(facts, textFact(prefix+".source_type", CategorySuppliedFact, "Fund holdings source type", result.SourceType))
+		}
+		if strings.TrimSpace(result.SourceURL) != "" {
+			facts = append(facts, textFact(prefix+".source_url", CategorySuppliedFact, "Fund holdings source URL", result.SourceURL))
+		}
+		if strings.TrimSpace(result.Confidence) != "" {
+			facts = append(facts, textFact(prefix+".confidence", CategorySuppliedFact, "Fund holdings confidence", result.Confidence))
+		}
 		if !result.RetrievedAt.IsZero() {
 			facts = append(facts, textFact(prefix+".retrieved_at", CategorySuppliedFact, "Fund holdings retrieval time", result.RetrievedAt.UTC().Format(time.RFC3339)))
 		}

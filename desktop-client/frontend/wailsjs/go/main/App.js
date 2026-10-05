@@ -62,6 +62,10 @@ export function GetPositionRiskAnalysis(arg1) {
   return window['go']['main']['App']['GetPositionRiskAnalysis'](arg1);
 }
 
+export function GetRecentAnalyses(arg1) {
+  return window['go']['main']['App']['GetRecentAnalyses'](arg1);
+}
+
 export function GetSessionStatus() {
   return window['go']['main']['App']['GetSessionStatus']();
 }

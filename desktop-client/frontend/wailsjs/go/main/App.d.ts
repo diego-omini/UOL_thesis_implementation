@@ -32,6 +32,8 @@ export function GetPortfolioRiskCounsel():Promise<main.PortfolioRiskCounselView>
 
 export function GetPositionRiskAnalysis(arg1:number):Promise<main.AIResponseView>;
 
+export function GetRecentAnalyses(arg1:number):Promise<Array<main.RecentAnalysisView>>;
+
 export function GetSessionStatus():Promise<main.SessionStatusView>;
 
 export function GetStockHistory(arg1:number,arg2:string):Promise<main.StockHistoryView>;

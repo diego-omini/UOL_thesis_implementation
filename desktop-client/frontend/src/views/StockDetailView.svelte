@@ -1,9 +1,8 @@
 <script lang="ts">
   // StockDetailView.svelte owns market-data loading and presentation for one selected stock.
   import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-  import { GetPositionRiskAnalysis, GetStockHistory, GetStockNews, GetStockSnapshot } from '../../wailsjs/go/main/App.js'
-  import CounselorAction from '../components/CounselorAction.svelte'
-  import CounselorResponse from '../components/CounselorResponse.svelte'
+  import { GetStockHistory, GetStockSnapshot } from '../../wailsjs/go/main/App.js'
+  import StockCounselor from '../components/StockCounselor.svelte'
   import TradingPanel from '../components/TradingPanel.svelte'
   import { formatCurrencyAmount, formatDate, formatError, formatMoney, formatNumber, formatOptionalCurrency, formatOptionalNumber, formatPercent } from '../lib/format'
   import {
@@ -16,7 +15,6 @@
     positionChartResult,
   } from '../lib/stock-chart'
   import type {
-    AIResponseView,
     InstrumentSearchResultView,
     OptionalNumberView,
     PositionView,
@@ -24,7 +22,6 @@
     StockHistoryView,
     StockSnapshotView,
   } from '../lib/types'
-  import { workflowCopy } from '../lib/counselor-workflows'
 
   export let stock: InstrumentSearchResultView
   export let position: PositionView | null
@@ -38,13 +35,8 @@
   let historyLoading = false
   let historyError = ''
   let selectedRange: StockHistoryRange = '24h'
-  let stockNews: AIResponseView | null = null
-  let stockNewsLoading = false
-  let stockNewsError = ''
-  let stockPromptsOpen = false
   let lifecycleSequence = 0
   let historySequence = 0
-  let newsSequence = 0
   const ranges: Array<{ value: StockHistoryRange; label: string }> = [
     { value: '24h', label: '24 hours' },
     { value: '1m', label: '1 month' },
@@ -53,7 +45,6 @@
   ]
 
   $: chartAverageCost = averageCostForChart(position, snapshot)
-
   onMount(() => {
     const lifecycle = lifecycleSequence
     void loadSnapshot(lifecycle)
@@ -63,7 +54,6 @@
   onDestroy(() => {
     lifecycleSequence++
     historySequence++
-    newsSequence++
   })
 
   async function loadSnapshot(lifecycle: number): Promise<void> {
@@ -108,26 +98,6 @@
     void loadHistory(timeRange, lifecycleSequence)
   }
 
-  // getStockNews accepts only the latest request in the active component lifecycle.
-  async function getStockNews(): Promise<void> {
-    const request = ++newsSequence
-    stockPromptsOpen = false
-    stockNews = null
-    stockNewsError = ''
-    stockNewsLoading = true
-    try {
-      const response = await GetStockNews(stock.ContractID)
-      if (request === newsSequence) stockNews = response
-    } catch (error) {
-      if (request === newsSequence) {
-        stockNewsError = formatError(error)
-        dispatch('sessionIssue')
-      }
-    } finally {
-      if (request === newsSequence) stockNewsLoading = false
-    }
-  }
-
   function stockMetricTitle(value: OptionalNumberView | undefined): string {
     return value?.Available ? '' : value?.UnavailableReason || 'Value unavailable'
   }
@@ -155,26 +125,11 @@
         {#if snapshot?.Instrument.Exchange || stock.Exchange}<span>{snapshot?.Instrument.Exchange || stock.Exchange}</span>{/if}
         {#if snapshot?.Currency}<span>{snapshot.Currency}</span>{/if}
       </div>
-      <details class="prompt-dropdown" bind:open={stockPromptsOpen}>
-        <summary>Stock prompts</summary>
-        <div class="prompt-menu">
-          <button type="button" disabled={stockNewsLoading} on:click={getStockNews}>
-            {stockNewsLoading ? 'Researching stock news...' : 'Get stock news'}
-          </button>
-        </div>
-      </details>
     </div>
   </div>
 
-  <TradingPanel {stock} {position} on:completed={() => dispatch('tradeComplete')} />
-
-  {#if stockNewsLoading}
-    <div class="ai-status" role="status" aria-live="polite">Researching the latest reliable news for this company...</div>
-  {:else if stockNewsError}
-    <div class="ai-error" role="alert" aria-live="assertive"><strong>Stock news unavailable</strong><span>{stockNewsError}</span></div>
-  {:else if stockNews}
-    <CounselorResponse response={stockNews} />
-  {/if}
+  <TradingPanel {stock} {position} currentContextAsOf={snapshot?.AsOf ?? ''} on:completed={() => dispatch('tradeComplete')} on:sessionIssue={() => dispatch('sessionIssue')} />
+  <StockCounselor {stock} {position} currentContextAsOf={snapshot?.AsOf ?? ''} on:sessionIssue={() => dispatch('sessionIssue')} />
 
   <section class="stock-chart-card" aria-label="Historical stock price">
     <div class="stock-chart-heading">
@@ -269,14 +224,6 @@
         <div><span>Market value</span><strong>{formatMoney(position.MarketValue)}</strong></div>
         <div><span>Unrealized P/L</span><strong class:loss={position.UnrealizedPnL.Available && position.UnrealizedPnL.Amount < 0} class="pnl">{formatMoney(position.UnrealizedPnL)}</strong></div>
       </div>
-      <div class="position-counselor">
-        <CounselorAction
-          workflow={workflowCopy('position_risk')}
-          action={() => GetPositionRiskAnalysis(stock.ContractID)}
-          resetOn={`${stock.ContractID}:${position.MarketValue.Amount}:${position.UnrealizedPnL.Amount}`}
-          on:sessionIssue={() => dispatch('sessionIssue')}
-        />
-      </div>
     </section>
   {:else}
     <section class="stock-not-held">This stock is not part of the current portfolio.</section>
@@ -293,17 +240,6 @@
   .stock-heading-actions { display: grid; justify-items: end; gap: 12px; }
   .stock-badges { display: flex; gap: 8px; }
   .stock-badges span { padding: 5px 9px; border-radius: 999px; background: #edf5f8; color: #14566e; font-size: 12px; font-weight: 800; }
-  .prompt-dropdown { position: relative; }
-  .prompt-dropdown summary { min-height: 38px; padding: 0 34px 0 14px; border: 1px solid #b8c4cf; border-radius: 4px; background: white; color: #293646; font-size: 14px; font-weight: 700; line-height: 36px; cursor: pointer; list-style: none; user-select: none; }
-  .prompt-dropdown summary::-webkit-details-marker { display: none; }
-  .prompt-dropdown summary::after { position: absolute; top: 16px; right: 14px; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; content: ''; transform: rotate(45deg); }
-  .prompt-dropdown[open] summary::after { top: 20px; transform: rotate(225deg); }
-  .prompt-menu { position: absolute; z-index: 2; top: calc(100% + 6px); right: 0; min-width: 230px; padding: 6px; border: 1px solid #d8e0e8; border-radius: 4px; background: white; box-shadow: 0 8px 22px rgb(36 52 68 / 16%); }
-  .prompt-menu button { width: 100%; padding: 10px 12px; border: 0; border-radius: 3px; background: transparent; color: #293646; font: inherit; font-size: 14px; font-weight: 700; text-align: left; cursor: pointer; }
-  .prompt-menu button:hover:not(:disabled), .prompt-menu button:focus-visible { background: #edf5f8; color: #14566e; }
-  .prompt-menu button:disabled { cursor: wait; opacity: 0.55; }
-  .ai-status, .ai-error { padding: 14px 16px; border-left: 4px solid #1f6f8b; background: #f5f9fb; color: #5d6a7a; line-height: 1.55; }
-  .ai-error { display: grid; gap: 4px; border-color: #c2414b; background: #fff7f7; }
   .stock-chart-card { overflow: hidden; border: 1px solid #d8e0e8; border-radius: 8px; background: white; }
   .stock-chart-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid #edf1f5; }
   .stock-chart-heading > div:first-child { display: grid; gap: 4px; }
@@ -343,7 +279,6 @@
   .section-title span { color: #5d6a7a; font-size: 14px; }
   .stock-position-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: #e5ebf1; }
   .stock-position-grid div { display: grid; gap: 7px; padding: 18px; background: white; }
-  .position-counselor { padding: 0 18px 18px; }
   .stock-position-grid span { color: #5d6a7a; font-size: 13px; }
   .stock-not-held { padding: 18px; border-left: 4px solid #1f6f8b; background: white; color: #5d6a7a; line-height: 1.5; }
   .pnl { color: #16835b; font-weight: 700; }
@@ -353,8 +288,6 @@
     .stock-heading, .stock-chart-heading, .section-heading { align-items: stretch; flex-direction: column; }
     .stock-heading-actions { justify-items: stretch; }
     .stock-badges { flex-wrap: wrap; }
-    .prompt-dropdown summary { width: 100%; box-sizing: border-box; }
-    .prompt-menu { right: auto; left: 0; width: 100%; box-sizing: border-box; }
     .stock-metrics-grid, .stock-position-grid { grid-template-columns: 1fr; }
     .range-selector { display: grid; grid-template-columns: repeat(4, 1fr); }
     .range-selector button { padding: 0 6px; }

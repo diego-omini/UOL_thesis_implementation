@@ -64,6 +64,31 @@ func TestCounselorResponseAcceptsValidGroundedOutput(t *testing.T) {
 	}
 }
 
+func TestCounselorResponseNormalizesFactReferencesAndKnownUnitAliases(t *testing.T) {
+	response := validCounselorTestResponse()
+	response.Observations[0].SupportingFactIDs = []string{"id=portfolio.value | kind=deterministic_derived_fact"}
+	response.Observations[0].ReportedValues[0].Unit = "%"
+	facts := counselorTestFacts()
+	facts[0].Unit = "percent"
+	response.Limitations[0].FactIDs = []string{"id=warning.missing_sector | available=false"}
+	parsed, errors := decodeAndValidateCounselorResponse(encodeCounselorTestResponse(t, response), facts, nil)
+	if len(errors) != 0 || parsed == nil {
+		t.Fatalf("representation-only mistakes were not normalized: parsed=%+v errors=%v", parsed, errors)
+	}
+	if parsed.Observations[0].SupportingFactIDs[0] != "portfolio.value" || parsed.Observations[0].ReportedValues[0].Unit != "percent" {
+		t.Fatalf("unexpected normalized response: %+v", parsed)
+	}
+}
+
+func TestCounselorResponseAddsReportedNumericFactToSupport(t *testing.T) {
+	response := validCounselorTestResponse()
+	response.Observations[0].SupportingFactIDs = nil
+	parsed, errors := decodeAndValidateCounselorResponse(encodeCounselorTestResponse(t, response), counselorTestFacts(), nil)
+	if len(errors) != 0 || parsed == nil || len(parsed.Observations[0].SupportingFactIDs) != 1 {
+		t.Fatalf("reported numeric fact was not normalized into support: parsed=%+v errors=%v", parsed, errors)
+	}
+}
+
 func TestCounselorResponseRejectsUnknownFields(t *testing.T) {
 	raw := strings.TrimSuffix(encodeCounselorTestResponse(t, validCounselorTestResponse()), "}") + `,"unexpected":true}`
 	if _, errors := decodeAndValidateCounselorResponse(raw, counselorTestFacts(), nil); len(errors) == 0 || !strings.Contains(errors[0], "unknown field") {
@@ -87,11 +112,12 @@ func TestCounselorResponseRejectsNumericalContradiction(t *testing.T) {
 	}
 }
 
-func TestCounselorResponseRejectsMissingRequiredLimitation(t *testing.T) {
+func TestCounselorResponseAddsMissingRequiredLimitationFromBackendFact(t *testing.T) {
 	response := validCounselorTestResponse()
 	response.Limitations[0].FactIDs = []string{}
-	if _, errors := decodeAndValidateCounselorResponse(encodeCounselorTestResponse(t, response), counselorTestFacts(), nil); !containsValidationError(errors, "required limitation") {
-		t.Fatalf("missing required limitation was not rejected: %v", errors)
+	parsed, errors := decodeAndValidateCounselorResponse(encodeCounselorTestResponse(t, response), counselorTestFacts(), nil)
+	if len(errors) != 0 || parsed == nil || len(parsed.Limitations) != 2 || parsed.Limitations[1].FactIDs[0] != "warning.missing_sector" {
+		t.Fatalf("backend-required limitation was not appended: parsed=%+v errors=%v", parsed, errors)
 	}
 }
 
@@ -162,6 +188,9 @@ func TestCounselorExecutorRepairsOnceAndPreservesBothResponses(t *testing.T) {
 	}
 	if response.Structured == nil || len(provider.requests) != 2 || provider.requests[1].ResponseSchema == nil {
 		t.Fatalf("structured repair did not complete: response=%+v requests=%+v", response, provider.requests)
+	}
+	if repair := provider.requests[1].Messages[len(provider.requests[1].Messages)-1].Content; !strings.Contains(repair, "exact identifier following id=") || !strings.Contains(repair, "Never put text or unavailable facts in reported_values") {
+		t.Fatalf("structured repair instructions are incomplete: %s", repair)
 	}
 	if len(recorder.records) != 1 {
 		t.Fatalf("record count = %d, want 1", len(recorder.records))

@@ -424,6 +424,18 @@ func (a *App) GetPortfolio() (PortfolioView, error) {
 	return toPortfolioView(portfolioSnapshot, portfolioAnalytics), nil
 }
 
+// GetRecentAnalyses returns a bounded safe projection of validated saved counselor results.
+func (a *App) GetRecentAnalyses(limit int) ([]RecentAnalysisView, error) {
+	if a.store == nil {
+		return []RecentAnalysisView{}, nil
+	}
+	records, err := a.store.QueryRecentAnalyses(a.context(), limit)
+	if err != nil {
+		return nil, err
+	}
+	return toRecentAnalysisViews(records), nil
+}
+
 // GetPortfolioRiskAnalysis calculates modeled risk from current exposures and broker price history.
 func (a *App) GetPortfolioRiskAnalysis() (PortfolioRiskAnalysisView, error) {
 	_, result, err := a.calculatePortfolioRisk()

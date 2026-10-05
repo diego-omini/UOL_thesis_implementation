@@ -6,6 +6,7 @@
   import type { AIResponseView } from '../lib/types'
 
   export let response: AIResponseView
+  export let currentContextAsOf = ''
 
   function renderMarkdown(value: string): string {
     const rendered = marked.parse(value, { async: false, gfm: true })
@@ -34,6 +35,13 @@
     } catch {
       // Invalid provider links remain inert.
     }
+  }
+
+  function provenanceState(): string {
+    if (!response.ContextAsOf) return 'Source-data timestamp was not recorded for this saved result.'
+    if (!currentContextAsOf) return `Data calculated ${new Date(response.ContextAsOf).toLocaleString()}.`
+    if (response.ContextAsOf === currentContextAsOf) return `Uses the currently displayed data from ${new Date(response.ContextAsOf).toLocaleString()}.`
+    return `Uses data from ${new Date(response.ContextAsOf).toLocaleString()}; the currently displayed figures have a different timestamp.`
   }
 </script>
 
@@ -105,7 +113,10 @@
       {@html renderMarkdown(response.Text)}
     {/if}
   </div>
-  <small>{response.Provider} · {response.Model} · {response.PromptID} v{response.PromptVersion}</small>
+  <footer>
+    <small>Created {response.CreatedAt ? new Date(response.CreatedAt).toLocaleString() : 'at an unrecorded time'} · {response.Provider} · {response.Model} · prompt v{response.PromptVersion}</small>
+    <small class:mismatch={Boolean(currentContextAsOf && response.ContextAsOf && currentContextAsOf !== response.ContextAsOf)}>{provenanceState()}</small>
+  </footer>
 </div>
 
 <style>
@@ -122,6 +133,9 @@
   .ai-response small {
     color: #5d6a7a;
   }
+
+  footer { display: grid; gap: 3px; padding-top: 10px; border-top: 1px solid #d8e0e8; }
+  footer .mismatch { color: #9a5b18; font-weight: 700; }
 
   .ai-response-content :global(h2) {
     margin: 18px 0 6px;

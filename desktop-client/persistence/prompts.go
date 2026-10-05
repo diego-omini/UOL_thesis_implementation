@@ -37,7 +37,7 @@ func (s *Store) RecordPromptExecution(ctx context.Context, execution ai.PromptEx
 	}
 	record := PromptExecutionRecord{
 		SchemaVersion: SchemaVersion,
-		StartedAt:     execution.StartedAt.UTC(), CompletedAt: execution.CompletedAt.UTC(),
+		StartedAt:     execution.StartedAt.UTC(), CompletedAt: execution.CompletedAt.UTC(), ContextAsOf: execution.ContextAsOf.UTC(),
 		Provider: execution.Provider, Model: execution.Model,
 		PromptID: execution.PromptID, PromptVersion: execution.PromptVersion,
 		Status: status, ParametersJSON: string(parameters),

@@ -4,13 +4,17 @@
   import { ConfirmOrder, GetOrderAnalysis, PreviewOrder, RespondToOrderWarning } from '../../wailsjs/go/main/App.js'
   import CounselorResponse from './CounselorResponse.svelte'
   import { formatDate, formatError, formatMoney, formatNumber } from '../lib/format'
+  import { classifyCounselorError } from '../lib/counselor-errors'
+  import { workflowAvailability, workflowCopy } from '../lib/counselor-workflows'
   import { canPreviewOrder, type OrderSide } from '../lib/trading'
   import type { AIResponseView, InstrumentSearchResultView, OrderPreviewView, OrderResultView, PositionView } from '../lib/types'
 
   export let stock: InstrumentSearchResultView
   export let position: PositionView | null
+  export let currentContextAsOf = ''
 
-  const dispatch = createEventDispatcher<{ completed: void }>()
+  const dispatch = createEventDispatcher<{ completed: void; sessionIssue: void }>()
+  const analysisWorkflow = workflowCopy('order_analysis')
 
   let side: OrderSide = 'BUY'
   let quantity = 1
@@ -59,7 +63,10 @@
       const next = await GetOrderAnalysis(stock.ContractID, side, Number(quantity))
       if (request === analysisSequence) analysis = next
     } catch (error) {
-      if (request === analysisSequence) analysisError = formatError(error)
+      if (request === analysisSequence) {
+        analysisError = formatError(error)
+        reportSessionIssue(analysisError)
+      }
     } finally {
       if (request === analysisSequence) analysisLoading = false
     }
@@ -75,10 +82,18 @@
       const next = await PreviewOrder(stock.ContractID, side, Number(quantity))
       if (request === requestSequence) preview = next
     } catch (error) {
-      if (request === requestSequence) errorMessage = formatError(error)
+      if (request === requestSequence) {
+        errorMessage = formatError(error)
+        reportSessionIssue(errorMessage)
+      }
     } finally {
       if (request === requestSequence) loading = false
     }
+  }
+
+  function reportSessionIssue(message: string): void {
+    const kind = classifyCounselorError(message).kind
+    if (kind === 'session' || kind === 'broker') dispatch('sessionIssue')
   }
 
   async function confirmOrder(): Promise<void> {
@@ -97,6 +112,7 @@
       if (request === requestSequence) {
         preview = null
         errorMessage = formatError(error)
+        reportSessionIssue(errorMessage)
       }
     } finally {
       if (request === requestSequence) loading = false
@@ -115,7 +131,10 @@
       result = next
       if (!next.WarningToken && confirmed) dispatch('completed')
     } catch (error) {
-      if (request === requestSequence) errorMessage = formatError(error)
+      if (request === requestSequence) {
+        errorMessage = formatError(error)
+        reportSessionIssue(errorMessage)
+      }
     } finally {
       if (request === requestSequence) loading = false
     }
@@ -133,6 +152,11 @@
     <button type="button" class:active={side === 'SELL'} aria-pressed={side === 'SELL'} on:click={() => selectSide('SELL')}>Sell</button>
   </div>
 
+  <aside class="analysis-intro" aria-label="Read-only proposed-order analysis">
+    <div><strong>{analysisWorkflow.title}</strong><span>{analysisWorkflow.description}</span></div>
+    <dl><dt>Required data</dt><dd>{analysisWorkflow.requiredData}</dd><dt>Research</dt><dd>Uses external company research; private order and portfolio values stay local.</dd></dl>
+  </aside>
+
   <form on:submit|preventDefault={createPreview}>
     <label for="share-quantity">Shares</label>
     <input
@@ -147,8 +171,8 @@
       required
     />
     <div class="form-actions">
-      <button class="analysis-button" type="button" disabled={loading || analysisLoading || !canPreviewOrder(side, Number(quantity), availableToSell)} on:click={getOrderAnalysis}>
-        {analysisLoading ? 'Analyzing...' : 'Get order analysis'}
+      <button class="analysis-button" type="button" disabled={loading || analysisLoading || !workflowAvailability(analysisWorkflow, { validOrder: canPreviewOrder(side, Number(quantity), availableToSell) }).available} on:click={getOrderAnalysis}>
+        {analysisLoading ? analysisWorkflow.loading : analysisWorkflow.action}
       </button>
       <button class="preview-button" type="submit" disabled={loading || analysisLoading || !canPreviewOrder(side, Number(quantity), availableToSell)}>
         {loading && !preview && !result?.WarningToken ? 'Checking order...' : `Preview ${side.toLowerCase()}`}
@@ -169,9 +193,9 @@
   {#if analysisLoading}
     <div class="analysis-status" role="status" aria-live="polite">Calculating order impact and researching reliable company evidence...</div>
   {:else if analysisError}
-    <div class="trade-error" role="alert"><strong>Order analysis unavailable</strong><span>{analysisError}</span></div>
+    <div class="trade-error" role="alert"><strong>{classifyCounselorError(analysisError).title}</strong><span>{classifyCounselorError(analysisError).guidance}</span><small>{analysisError}</small></div>
   {:else if analysis}
-    <CounselorResponse response={analysis} />
+    <CounselorResponse response={analysis} {currentContextAsOf} />
   {/if}
 
   {#if preview}
@@ -220,6 +244,12 @@
   .side-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 6px; background: #edf1f5; }
   .side-selector button { min-height: 38px; border: 0; border-radius: 4px; background: transparent; color: #4c5b6b; font: inherit; font-weight: 800; cursor: pointer; }
   .side-selector button.active { background: white; color: #14566e; box-shadow: 0 1px 3px rgba(24, 33, 47, .14); }
+  .analysis-intro { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 1fr); gap: 16px; padding: 13px 14px; border: 1px solid #dce4ea; border-radius: 5px; background: #f8fafb; }
+  .analysis-intro > div { display: grid; align-content: start; gap: 3px; }
+  .analysis-intro span, .analysis-intro dd { color: #5d6a7a; font-size: 12px; line-height: 1.4; }
+  .analysis-intro dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 9px; margin: 0; background: transparent; }
+  .analysis-intro dt { font-size: 11px; font-weight: 800; }
+  .analysis-intro dd { padding: 0; background: transparent; text-align: left; }
   form { display: grid; grid-template-columns: auto minmax(100px, 180px) minmax(0, 1fr); align-items: center; gap: 10px; }
   form label { font-weight: 700; }
   input { min-height: 40px; padding: 0 11px; border: 1px solid #b8c4cf; border-radius: 4px; box-sizing: border-box; font: inherit; }
@@ -243,12 +273,12 @@
   .secondary { min-height: 40px; padding: 0 16px; border: 1px solid #9aa7b4; border-radius: 4px; background: white; color: #354354; font-weight: 700; cursor: pointer; }
   .trade-error, .trade-success { display: grid; gap: 4px; padding: 12px 14px; border-left: 4px solid #c2414b; background: #fff7f7; }
   .trade-success { border-color: #237a4b; background: #f3fbf6; }
-  .trade-error span, .trade-success span { color: #5d6a7a; }
+  .trade-error span, .trade-error small, .trade-success span { color: #5d6a7a; }
   .trade-cancelled { color: #5d6a7a; }
   .analysis-status { padding: 12px 14px; border-left: 4px solid #1f6f8b; background: #f5f9fb; color: #5d6a7a; }
 
   @media (max-width: 620px) {
-    form { grid-template-columns: 1fr; }
+    form, .analysis-intro { grid-template-columns: 1fr; }
     .form-actions { display: grid; grid-template-columns: 1fr; }
     .trading-heading, .preview-title, .confirmation-actions { align-items: stretch; flex-direction: column; }
     .confirmation-actions button { width: 100%; }

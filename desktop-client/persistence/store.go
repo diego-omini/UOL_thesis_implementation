@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // Store owns the application's concrete SQLite connection and focused persistence operations.
 type Store struct {

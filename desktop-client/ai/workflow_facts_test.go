@@ -4,6 +4,7 @@ package ai
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +81,35 @@ func TestPositionRiskFactsUseDeterministicPercentMetrics(t *testing.T) {
 	fact := findFact(facts, "position_risk.annualized_volatility")
 	if fact == nil || fact.NumericValue == nil || *fact.NumericValue != 31 {
 		t.Fatalf("unexpected volatility fact: %#v", fact)
+	}
+}
+
+func TestDiversificationFactsBoundEffectiveSecurityContext(t *testing.T) {
+	exposures := make([]analytics.EffectiveExposure, 15)
+	for index := range exposures {
+		exposures[index] = analytics.EffectiveExposure{MetricID: fmt.Sprintf("effective.security.%d.weight", index+1), Name: fmt.Sprintf("Security %d", index+1), Weight: analytics.Ratio{Value: .01, Available: true}}
+	}
+	facts := diversificationFacts(portfolio.Portfolio{}, analytics.Result{CalculatedAt: time.Now(), EffectiveSecurityExposure: exposures, EffectiveExposureComplete: true})
+	if findFact(facts, "effective.security.13.weight") != nil {
+		t.Fatalf("effective-security context was not bounded: %#v", facts)
+	}
+	coverage := findFact(facts, "effective.security_coverage")
+	if coverage == nil || !coverage.RequiredLimitation || factText(facts, "effective.security_count_total") != "" {
+		t.Fatalf("bounded coverage facts missing: %#v", facts)
+	}
+	assertFact(t, facts, "effective.security_count_total", "count", true)
+	assertFact(t, facts, "effective.security_count_supplied", "count", true)
+}
+
+func TestDataQualityFactsDoNotDuplicateFundProvenance(t *testing.T) {
+	result := analytics.Result{CalculatedAt: time.Now(), FundLookThrough: []portfolio.FundHoldings{{Fund: portfolio.Instrument{Symbol: "FUND"}, Available: true, Complete: true, SourceType: "issuer CSV", SourceURL: "https://example.test/fund.csv", Confidence: "high"}}}
+	facts := dataQualityFacts(portfolio.Portfolio{}, result)
+	seen := map[string]bool{}
+	for _, fact := range facts {
+		if seen[fact.ID] {
+			t.Fatalf("duplicate fact ID %q: %#v", fact.ID, facts)
+		}
+		seen[fact.ID] = true
 	}
 }
 

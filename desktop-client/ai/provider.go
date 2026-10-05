@@ -58,12 +58,15 @@ type Response struct {
 	Model         string
 	PromptID      string
 	PromptVersion int
+	CreatedAt     time.Time
+	ContextAsOf   time.Time
 }
 
 // PromptExecution contains the sanitized prompt inputs and outcome retained for reproducibility.
 type PromptExecution struct {
 	StartedAt        time.Time
 	CompletedAt      time.Time
+	ContextAsOf      time.Time
 	Provider         string
 	Model            string
 	PromptID         string

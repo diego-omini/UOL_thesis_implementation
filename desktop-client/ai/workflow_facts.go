@@ -13,7 +13,7 @@ import (
 	"wails/positionanalysis"
 )
 
-func currencyExposureFacts(snapshot portfolio.Portfolio, result analytics.Result) []CounselorFact {
+func currencyExposureFacts(_ portfolio.Portfolio, result analytics.Result) []CounselorFact {
 	facts := []CounselorFact{
 		textFact("currency.analysis_timestamp", CategorySuppliedFact, "Analysis timestamp", result.CalculatedAt.UTC().Format(time.RFC3339)),
 		textFact("currency.base_currency", CategoryDeterministicDerivedFact, "Account base currency", result.BaseCurrency),
@@ -35,11 +35,13 @@ func currencyExposureFacts(snapshot portfolio.Portfolio, result analytics.Result
 			facts = append(facts, textFact(prefix+".as_of", CategorySuppliedFact, "Conversion-rate timestamp", rate.AsOf.UTC().Format(time.RFC3339)))
 		}
 	}
-	for index, position := range snapshot.Positions {
-		prefix := positionFactPrefix(position.Instrument, index)
-		facts = append(facts, textFact(prefix+".currency", CategorySuppliedFact, "Position currency", position.Instrument.Currency))
+	for _, warning := range result.Warnings {
+		switch warning.Code {
+		case "missing_base_currency", "missing_currency", "missing_market_value", "missing_base_market_value":
+			facts = appendAnalyticsWarnings(facts, "currency", []analytics.DataWarning{warning})
+		}
 	}
-	return appendAnalyticsWarnings(facts, "currency", result.Warnings)
+	return facts
 }
 
 func diversificationFacts(snapshot portfolio.Portfolio, result analytics.Result) []CounselorFact {
@@ -51,7 +53,7 @@ func diversificationFacts(snapshot portfolio.Portfolio, result analytics.Result)
 		ratioFact(analytics.MetricHHI, "Direct-position Herfindahl-Hirschman index", result.HHI, "hhi_index"),
 	}
 	facts = append(facts, allocationFacts("diversification.direct_sector", "Direct sector exposure", result.SectorAllocation)...)
-	facts = append(facts, effectiveExposureFacts(result)...)
+	facts = append(facts, focusedEffectiveExposureFacts(result, 12)...)
 	facts = append(facts, fundLookThroughFacts(result.FundLookThrough)...)
 	return appendAnalyticsWarnings(facts, "diversification", result.Warnings)
 }
@@ -74,11 +76,56 @@ func dataQualityFacts(snapshot portfolio.Portfolio, result analytics.Result) []C
 			textFact(prefix+".symbol", CategorySuppliedFact, "Fund ticker", fund.Fund.Symbol),
 			availabilityFact(prefix+".available", "Structured holdings availability", fund.Available),
 			availabilityFact(prefix+".complete", "Structured holdings completeness", fund.Complete),
-			textFact(prefix+".source_type", CategorySuppliedFact, "Fund holdings source type", fund.SourceType),
 		)
+		if strings.TrimSpace(fund.SourceType) != "" {
+			facts = append(facts, textFact(prefix+".source_type", CategorySuppliedFact, "Fund holdings source type", fund.SourceType))
+		}
+		if strings.TrimSpace(fund.SourceURL) != "" {
+			facts = append(facts, textFact(prefix+".source_url", CategorySuppliedFact, "Fund holdings source URL", fund.SourceURL))
+		}
+		if strings.TrimSpace(fund.Confidence) != "" {
+			facts = append(facts, textFact(prefix+".confidence", CategorySuppliedFact, "Fund holdings confidence", fund.Confidence))
+		}
+		if !fund.RetrievedAt.IsZero() {
+			facts = append(facts, textFact(prefix+".retrieved_at", CategorySuppliedFact, "Fund holdings retrieval time", fund.RetrievedAt.UTC().Format(time.RFC3339)))
+		}
+		if !fund.EffectiveDate.IsZero() {
+			facts = append(facts, textFact(prefix+".effective_date", CategorySuppliedFact, "Fund holdings effective date", fund.EffectiveDate.UTC().Format("2006-01-02")))
+		}
+		if fund.CoveragePercentage.Available {
+			facts = append(facts, numberFact(prefix+".coverage", CategorySuppliedFact, "Fund holdings coverage", fund.CoveragePercentage.Value, "percent", percentAbsoluteTolerance, 0))
+		}
+		for warningIndex, warning := range fund.Warnings {
+			facts = append(facts, CounselorFact{ID: fmt.Sprintf("%s.warning.%d", prefix, warningIndex+1), Kind: string(CategoryUnavailableInformation), Label: "Fund holdings warning", TextValue: warning, Available: false, Limitation: warning, RequiredLimitation: true})
+		}
 	}
-	facts = append(facts, fundLookThroughFacts(result.FundLookThrough)...)
 	return appendAnalyticsWarnings(facts, "quality", result.Warnings)
+}
+
+func focusedEffectiveExposureFacts(result analytics.Result, limit int) []CounselorFact {
+	facts := make([]CounselorFact, 0, limit+len(result.EffectiveSectorAllocation)+3)
+	total := len(result.EffectiveSecurityExposure)
+	facts = append(facts, numberFact("effective.security_count_total", CategoryDeterministicDerivedFact, "Calculated effective securities", float64(total), "count", 0, 0))
+	securityExposures := result.EffectiveSecurityExposure
+	if limit > 0 && len(securityExposures) > limit {
+		securityExposures = securityExposures[:limit]
+		facts = append(facts, CounselorFact{
+			ID: "effective.security_coverage", Kind: string(CategoryUnavailableInformation), Label: "Effective security facts supplied to the counselor",
+			TextValue: fmt.Sprintf("largest %d of %d calculated effective security exposures", limit, total), Available: false,
+			Limitation: fmt.Sprintf("The explanation received only the %d largest of %d calculated effective security exposures.", limit, total), RequiredLimitation: true,
+		})
+	}
+	facts = append(facts, numberFact("effective.security_count_supplied", CategoryDeterministicDerivedFact, "Effective securities supplied to the counselor", float64(len(securityExposures)), "count", 0, 0))
+	for _, exposure := range securityExposures {
+		facts = append(facts, ratioFact(exposure.MetricID, "Effective security exposure for "+valueOrUnavailable(exposure.Name), exposure.Weight, "percent"))
+	}
+	facts = append(facts, allocationFacts(strings.TrimSuffix(analytics.MetricEffectiveSectorPrefix, "."), "Effective sector exposure", result.EffectiveSectorAllocation)...)
+	if result.EffectiveExposureComplete {
+		facts = append(facts, textFact("effective.data_quality", CategoryDeterministicDerivedFact, "Effective exposure data quality", "complete"))
+	} else {
+		facts = append(facts, CounselorFact{ID: "effective.data_quality", Kind: string(CategoryUnavailableInformation), Label: "Effective exposure data quality", TextValue: "incomplete", Available: false, Limitation: "Effective look-through exposure is incomplete.", RequiredLimitation: true})
+	}
+	return facts
 }
 
 func portfolioHistoryFacts(summary portfoliohistory.Summary) []CounselorFact {

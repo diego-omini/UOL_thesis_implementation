@@ -8,6 +8,7 @@ import (
 	"wails/ai"
 	"wails/analytics"
 	"wails/broker"
+	"wails/persistence"
 	"wails/portfolio"
 	"wails/portfolioanalysis"
 	"wails/portfoliohistory"
@@ -311,6 +312,13 @@ type AIResponseView struct {
 	Model         string
 	PromptID      string
 	PromptVersion int
+	CreatedAt     string
+	ContextAsOf   string
+}
+
+type RecentAnalysisView struct {
+	ID       uint
+	Response AIResponseView
 }
 
 type ReportedValueView struct {
@@ -566,6 +574,7 @@ func toAIResponseView(response ai.Response, provider string) AIResponseView {
 	view := AIResponseView{
 		Text: response.Text, Provider: provider, Model: response.Model,
 		PromptID: response.PromptID, PromptVersion: response.PromptVersion,
+		CreatedAt: formatOptionalTime(response.CreatedAt), ContextAsOf: formatOptionalTime(response.ContextAsOf),
 	}
 	if response.Structured == nil {
 		return view
@@ -597,6 +606,17 @@ func toAIResponseView(response ai.Response, provider string) AIResponseView {
 		view.Structured.Limitations = append(view.Structured.Limitations, CounselorLimitationView(limitation))
 	}
 	return view
+}
+
+func toRecentAnalysisViews(records []persistence.RecentAnalysis) []RecentAnalysisView {
+	views := make([]RecentAnalysisView, 0, len(records))
+	for _, record := range records {
+		views = append(views, RecentAnalysisView{ID: record.ID, Response: toAIResponseView(ai.Response{
+			Structured: &record.Response, Model: record.Model, PromptID: record.PromptID,
+			PromptVersion: record.PromptVersion, CreatedAt: record.CreatedAt, ContextAsOf: record.ContextAsOf,
+		}, record.Provider)})
+	}
+	return views
 }
 
 func toRatioView(ratio analytics.Ratio) RatioView {

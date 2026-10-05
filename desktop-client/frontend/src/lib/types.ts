@@ -15,6 +15,7 @@ export type PortfolioHistoryMetricView = main.PortfolioHistoryMetricView
 export type PortfolioHistoryPointView = main.PortfolioHistoryPointView
 export type PortfolioHistorySeriesView = main.PortfolioHistorySeriesView
 export type PortfolioHistoryView = main.PortfolioHistoryView
+export type RecentAnalysisView = main.RecentAnalysisView
 export type PositionView = main.PositionView
 export type RatioView = main.RatioView
 export type SessionStatus = main.SessionStatusView

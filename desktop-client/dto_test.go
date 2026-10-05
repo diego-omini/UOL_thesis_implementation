@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"wails/ai"
+	"wails/persistence"
 	"wails/portfolioanalysis"
 	"wails/portfoliohistory"
 )
@@ -14,6 +16,18 @@ func TestToPortfolioRiskAnalysisViewReturnsEmptyCollections(t *testing.T) {
 	view := toPortfolioRiskAnalysisView(portfolioanalysis.Result{CalculatedAt: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)})
 	if view.Positions == nil || view.Correlations == nil || view.Scenarios == nil || view.Warnings == nil {
 		t.Fatalf("risk view must expose empty collections instead of null: %+v", view)
+	}
+}
+
+func TestRecentAnalysisViewExposesOnlyValidatedResponseBoundary(t *testing.T) {
+	createdAt := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	views := toRecentAnalysisViews([]persistence.RecentAnalysis{{
+		ID: 7, CreatedAt: createdAt, ContextAsOf: createdAt.Add(-time.Minute), Provider: "ollama", Model: "model",
+		PromptID: "portfolio_resume", PromptVersion: 3,
+		Response: ai.CounselorResponse{SchemaVersion: 1, Summary: "Saved", Observations: []ai.CounselorObservation{}, Limitations: []ai.CounselorLimitation{}},
+	}})
+	if len(views) != 1 || views[0].ID != 7 || views[0].Response.Text != "" || views[0].Response.Structured.Summary != "Saved" || views[0].Response.CreatedAt != createdAt.Format(time.RFC3339) {
+		t.Fatalf("unexpected recent analysis DTO: %+v", views)
 	}
 }
 

@@ -177,7 +177,9 @@
     workflow={workflowCopy('portfolio_history_summary')}
     action={() => GetPortfolioHistorySummary(selectedRange)}
     disabled={loading || !history || history.AccountValuePointCount + history.TrackingPointCount === 0}
+    unavailableReason={loading ? 'Historical data is still loading.' : 'No observations are available in the selected range.'}
     resetOn={`${selectedRange}:${history?.To ?? ''}`}
+    currentContextAsOf={history?.To ?? ''}
   />
 
   <div class="data-definition">

@@ -50,6 +50,7 @@ type PromptExecutionRecord struct {
 	SchemaVersion        int       `gorm:"not null"`
 	StartedAt            time.Time `gorm:"not null;index"`
 	CompletedAt          time.Time `gorm:"not null"`
+	ContextAsOf          time.Time `gorm:"index"`
 	Provider             string    `gorm:"size:64"`
 	Model                string    `gorm:"size:255"`
 	PromptID             string    `gorm:"size:128;not null;index"`

@@ -86,6 +86,7 @@ func (e *Executor) executeDefinition(
 	facts []CounselorFact,
 ) (result Response, executionErr error) {
 	startedAt := time.Now().UTC()
+	contextAsOf := counselorContextAsOf(facts)
 	var renderedSystemPrompt string
 	var renderedUserPrompt string
 	var transcript []Message
@@ -100,8 +101,12 @@ func (e *Executor) executeDefinition(
 		if e.recorder == nil {
 			return
 		}
+		completedAt := result.CreatedAt
+		if completedAt.IsZero() {
+			completedAt = time.Now().UTC()
+		}
 		record := PromptExecution{
-			StartedAt: startedAt, CompletedAt: time.Now().UTC(), Provider: e.providerName,
+			StartedAt: startedAt, CompletedAt: completedAt, ContextAsOf: contextAsOf, Provider: e.providerName,
 			Model: model, PromptID: definition.ID, PromptVersion: definition.Version,
 			Parameters: parameters, SystemPrompt: renderedSystemPrompt, UserPrompt: renderedUserPrompt,
 			Transcript: transcript, ModelSettings: modelSettings,
@@ -183,8 +188,26 @@ func (e *Executor) executeDefinition(
 		Model:         completed.response.Model,
 		PromptID:      definition.ID,
 		PromptVersion: definition.Version,
+		CreatedAt:     time.Now().UTC(),
+		ContextAsOf:   contextAsOf,
 	}
 	return result, nil
+}
+
+// counselorContextAsOf finds the newest authoritative timestamp supplied to a counselor prompt.
+func counselorContextAsOf(facts []CounselorFact) time.Time {
+	var newest time.Time
+	for _, fact := range facts {
+		id := strings.ToLower(strings.TrimSpace(fact.ID))
+		if !strings.Contains(id, "timestamp") && !strings.Contains(id, "range_end") && !strings.HasSuffix(id, ".as_of") && !strings.HasSuffix(id, ".last_at") {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(fact.TextValue))
+		if err == nil && parsed.After(newest) {
+			newest = parsed.UTC()
+		}
+	}
+	return newest
 }
 
 func (e *Executor) runToolLoop(
@@ -263,15 +286,19 @@ func (e *Executor) repair(
 	if len(settings.RequiredSections) > 0 {
 		sections = strings.Join(settings.RequiredSections, ", ")
 	}
+	repairInstruction := fmt.Sprintf(
+		"Your previous response was not a valid final answer: %v. Return the final answer only in %s format, include these required sections: %s, and keep it within %d characters. Do not emit, call, or describe a tool or function.",
+		validationErr,
+		settings.Format,
+		sections,
+		settings.MaxCharacters,
+	)
+	if settings.Schema == CounselorResponseSchema {
+		repairInstruction += ` Return one concise JSON object with schema_version 1, a non-empty summary, one to five complete observations, and at least one response limitation. Every observation must have a non-empty statement and explanation and must include all array fields. Use only the category, severity, and confidence enum values declared in the schema. This is a tool-free repair: use no sourced_external_evidence category, URLs, or citations; citations must be empty arrays. A supporting_fact_ids or limitation fact_ids entry must be only the exact identifier following id= in the supplied facts, never the whole fact line. reported_values may contain only supplied numeric facts; copy the value and exact unit token, and also list the same fact ID in supporting_fact_ids. Never put text or unavailable facts in reported_values. Include every fact named by a "required limitation ... is missing" validation error in a response-level limitation fact_ids array. If an observation cannot be repaired safely, omit it rather than inventing support. Do not copy placeholder text.`
+	}
 	messages = append(messages, Message{
-		Role: "user",
-		Content: fmt.Sprintf(
-			"Your previous response was not a valid final answer: %v. Return the final answer only in %s format, include these required sections: %s, and keep it within %d characters. Do not emit, call, or describe a tool or function.",
-			validationErr,
-			settings.Format,
-			sections,
-			settings.MaxCharacters,
-		),
+		Role:    "user",
+		Content: repairInstruction,
 	})
 	response, err := e.provider.Chat(ctx, ChatRequest{
 		Messages: messages, ResponseSchema: responseSchema,

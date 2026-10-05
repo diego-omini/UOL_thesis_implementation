@@ -4,9 +4,12 @@
   import { GetPortfolioRiskAnalysis, GetPortfolioRiskCounsel } from '../../wailsjs/go/main/App.js'
   import CounselorResponse from './CounselorResponse.svelte'
   import { formatDate, formatError, formatMoney, formatPercent } from '../lib/format'
+  import { classifyCounselorError } from '../lib/counselor-errors'
+  import { workflowAvailability, workflowCopy } from '../lib/counselor-workflows'
   import type { AIResponseView, PortfolioRiskAnalysisView } from '../lib/types'
 
   const dispatch = createEventDispatcher<{ sessionIssue: void }>()
+  const workflow = workflowCopy('portfolio_risk')
 
   let result: PortfolioRiskAnalysisView | null = null
   let counselorResponse: AIResponseView | null = null
@@ -52,7 +55,8 @@
     } catch (error) {
       if (request === sequence) {
         counselorError = formatError(error)
-        dispatch('sessionIssue')
+        const kind = classifyCounselorError(counselorError).kind
+        if (kind === 'session' || kind === 'broker') dispatch('sessionIssue')
       }
     } finally {
       if (request === sequence) counselorLoading = false
@@ -69,7 +73,7 @@
     <div><h2 id="portfolio-risk-title">Modeled portfolio risk</h2><span>Current signed weights with one year of broker price history</span></div>
     <div class="risk-actions">
       <button type="button" disabled={loading || counselorLoading} on:click={calculate}>{loading ? 'Calculating...' : (result ? 'Recalculate' : 'Calculate risk')}</button>
-      {#if result && result.Observations >= 20}<button class="secondary" type="button" disabled={loading || counselorLoading} on:click={explain}>{counselorLoading ? 'Preparing explanation...' : 'Explain with counselor'}</button>{/if}
+      <button class="secondary" type="button" disabled={loading || counselorLoading || !workflowAvailability(workflow, { riskObservations: result?.Observations ?? 0 }).available} on:click={explain}>{counselorLoading ? workflow.loading : workflow.action}</button>
     </div>
   </div>
 
@@ -92,8 +96,9 @@
 
     <div class="scenarios"><h3>Deterministic stress scenarios</h3>{#each result.Scenarios as scenario}<article><div><strong>{scenario.Name}</strong><span>{scenario.Description}</span></div><div><strong>{formatMoney(scenario.Impact)}</strong><span>{formatPercent(scenario.ImpactRatio)} of net liquidation</span></div></article>{/each}</div>
     {#if result.Warnings.length > 0}<details class="limits"><summary>Method and data limitations ({result.Warnings.length})</summary><ul>{#each result.Warnings as warning}<li>{warning}</li>{/each}</ul></details>{/if}
-    {#if counselorError}<div class="state error" role="alert"><strong>Risk explanation unavailable</strong><span>{counselorError}</span></div>{/if}
-    {#if counselorResponse}<CounselorResponse response={counselorResponse} />{/if}
+    <div class="counselor-context"><strong>{workflow.title}</strong><span>{workflow.requiredData} · No external research</span>{#if !workflowAvailability(workflow, { riskObservations: result.Observations }).available}<small>{workflowAvailability(workflow, { riskObservations: result.Observations }).reason}</small>{/if}</div>
+    {#if counselorError}<div class="state error" role="alert"><strong>{classifyCounselorError(counselorError).title}</strong><span>{classifyCounselorError(counselorError).guidance}</span><small>{counselorError}</small></div>{/if}
+    {#if counselorResponse}<CounselorResponse response={counselorResponse} currentContextAsOf={result.CalculatedAt} />{/if}
   {:else if !loading}
     <div class="state">This calculation requests one year of daily history for each eligible stock. It does not reconstruct past holdings or account performance.</div>
   {/if}
@@ -128,5 +133,7 @@
   .limits ul { padding-left: 20px; }
   .state { margin-top: 14px; padding: 12px 14px; border-left: 4px solid #7a8797; background: #f6f8fa; }
   .state.error { border-color: #c2414b; background: #fff7f7; color: #a62f3a; }
+  .counselor-context { display: grid; gap: 3px; margin-top: 14px; padding: 11px 13px; border: 1px solid #dce4ea; border-radius: 5px; }
+  .counselor-context span, .counselor-context small { color: #5d6a7a; font-size: 12px; }
   @media (max-width: 780px) { .risk-heading, .scenarios article { align-items: stretch; flex-direction: column; } .risk-actions { flex-direction: column; } .grids { grid-template-columns: 1fr; } .scenarios article div:last-child { text-align: left; } }
 </style>
