@@ -47,6 +47,7 @@ desktop-client/build/windows/installer/*
 *.test
 *.out
 .gocache/
+desktop-client/.tmp-go-cache/
 
 # Logs
 *.log

@@ -209,7 +209,7 @@ func Calculate(snapshot portfolio.Portfolio, calculatedAt time.Time) Result {
 func CalculateWithFundHoldings(snapshot portfolio.Portfolio, holdings []portfolio.FundHoldings, calculatedAt time.Time) Result {
 	result := Calculate(snapshot, calculatedAt)
 	result.FundLookThrough = cloneFundResults(holdings)
-	if !result.GrossExposure.Available {
+	if !result.GrossExposure.Available || result.GrossExposure.Amount <= 0 {
 		return result
 	}
 
@@ -529,6 +529,9 @@ func addAllocation(values map[string]allocationValue, label string, marketValue 
 
 // buildAllocations converts grouped values into consistently ordered exposure allocations.
 func buildAllocations(values map[string]allocationValue, currency string, grossExposure float64) []Allocation {
+	if grossExposure <= 0 || math.IsNaN(grossExposure) || math.IsInf(grossExposure, 0) {
+		return []Allocation{}
+	}
 	allocations := make([]Allocation, 0, len(values))
 	for label, value := range values {
 		allocations = append(allocations, Allocation{

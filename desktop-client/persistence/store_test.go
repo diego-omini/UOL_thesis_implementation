@@ -28,6 +28,36 @@ func openTestStore(t *testing.T) *Store {
 	return store
 }
 
+func TestOpenMigrationIsIdempotentAndPreservesExistingRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "application.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := PortfolioSnapshotRecord{
+		SchemaVersion: SchemaVersion, CapturedAt: time.Now().UTC(), PositionCount: 0,
+		SnapshotHash: "existing", SnapshotJSON: `{}`, AnalyticsJSON: `{}`,
+	}
+	if err := store.db.Create(&record).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("second Open failed: %v", err)
+	}
+	defer reopened.Close()
+	var count int64
+	if err := reopened.db.Model(&PortfolioSnapshotRecord{}).Where("snapshot_hash = ?", "existing").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("existing rows after repeated migration = %d, want 1", count)
+	}
+}
+
 func TestSavePortfolioSnapshotRemovesAccountIdentity(t *testing.T) {
 	store := openTestStore(t)
 	capturedAt := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)

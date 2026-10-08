@@ -28,8 +28,22 @@ body {
 }
 
 button,
-input {
+input,
+select {
     font-family: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+    outline: 3px solid rgba(31, 111, 139, 0.45);
+    outline-offset: 2px;
+}
+
+[role="alert"] {
+    overflow-wrap: anywhere;
 }
 
 .primary-button,

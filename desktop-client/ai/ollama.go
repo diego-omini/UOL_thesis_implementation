@@ -66,9 +66,10 @@ type ollamaOptions struct {
 }
 
 type ollamaChatResponse struct {
-	Model   string        `json:"model"`
-	Message ollamaMessage `json:"message"`
-	Error   string        `json:"error"`
+	Model      string        `json:"model"`
+	Message    ollamaMessage `json:"message"`
+	DoneReason string        `json:"done_reason"`
+	Error      string        `json:"error"`
 }
 
 // NewOllamaProvider creates an Ollama adapter with a bounded request duration.
@@ -107,12 +108,18 @@ func (p *OllamaProvider) Chat(ctx context.Context, request ChatRequest) (ChatRes
 
 	httpResponse, err := p.client.Do(httpRequest)
 	if err != nil {
-		return ChatResponse{}, fmt.Errorf("Ollama is not reachable at %s: %w", p.baseURL, err)
+		if ctx.Err() != nil {
+			return ChatResponse{}, ctx.Err()
+		}
+		return ChatResponse{}, fmt.Errorf("Ollama is not reachable at the configured endpoint: %w", err)
 	}
 	defer httpResponse.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(httpResponse.Body, maxOllamaResponseBytes))
+	body, err := io.ReadAll(io.LimitReader(httpResponse.Body, maxOllamaResponseBytes+1))
 	if err != nil {
 		return ChatResponse{}, fmt.Errorf("read Ollama response: %w", err)
+	}
+	if len(body) > maxOllamaResponseBytes {
+		return ChatResponse{}, fmt.Errorf("Ollama response exceeded the %d-byte limit", maxOllamaResponseBytes)
 	}
 
 	var generated ollamaChatResponse
@@ -124,16 +131,27 @@ func (p *OllamaProvider) Chat(ctx context.Context, request ChatRequest) (ChatRes
 		if message == "" {
 			message = httpResponse.Status
 		}
-		return ChatResponse{}, fmt.Errorf("Ollama request failed: %s", message)
+		return ChatResponse{}, fmt.Errorf("Ollama request failed: %s", boundedProviderMessage(message))
 	}
 	if generated.Error != "" {
-		return ChatResponse{}, fmt.Errorf("Ollama request failed: %s", generated.Error)
+		return ChatResponse{}, fmt.Errorf("Ollama request failed: %s", boundedProviderMessage(generated.Error))
 	}
 
 	return ChatResponse{
-		Message: fromOllamaMessage(generated.Message),
-		Model:   generated.Model,
+		Message:      fromOllamaMessage(generated.Message),
+		Model:        generated.Model,
+		FinishReason: generated.DoneReason,
 	}, nil
+}
+
+func boundedProviderMessage(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	const maximum = 512
+	runes := []rune(message)
+	if len(runes) > maximum {
+		return string(runes[:maximum]) + "..."
+	}
+	return message
 }
 
 func toOllamaMessages(messages []Message) []ollamaMessage {

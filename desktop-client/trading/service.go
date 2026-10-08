@@ -5,8 +5,6 @@ package trading
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -22,7 +20,6 @@ const previewLifetime = 45 * time.Second
 
 // Preview is the complete information the user must inspect before confirming an order.
 type Preview struct {
-	Token             string
 	ExpiresAt         time.Time
 	Instrument        portfolio.Instrument
 	Side              broker.OrderSide
@@ -39,10 +36,10 @@ type Preview struct {
 
 // Result reports an acknowledged order or a broker warning requiring another explicit decision.
 type Result struct {
-	OrderID         string
-	Status          string
-	WarningToken    string
-	WarningMessages []string
+	OrderID              string
+	Status               string
+	ConfirmationRequired bool
+	WarningMessages      []string
 }
 
 type pendingPreview struct {
@@ -55,7 +52,6 @@ type pendingPreview struct {
 }
 
 type pendingWarning struct {
-	token   string
 	replyID string
 	pending pendingPreview
 }
@@ -68,9 +64,9 @@ type Service struct {
 	recorder  AuditRecorder
 	now       func() time.Time
 
-	mu       sync.Mutex
-	previews map[string]pendingPreview
-	warning  *pendingWarning
+	mu      sync.Mutex
+	preview *pendingPreview
+	warning *pendingWarning
 }
 
 // SetAuditRecorder enables durable order audit events for subsequent manual actions.
@@ -85,7 +81,6 @@ func NewService(portfolios broker.PortfolioProvider, stocks broker.StockDataProv
 		stocks:    stocks,
 		orders:    orders,
 		now:       time.Now,
-		previews:  make(map[string]pendingPreview),
 	}
 }
 
@@ -93,7 +88,7 @@ func NewService(portfolios broker.PortfolioProvider, stocks broker.StockDataProv
 func (s *Service) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.previews = make(map[string]pendingPreview)
+	s.preview = nil
 	s.warning = nil
 }
 
@@ -162,18 +157,13 @@ func (s *Service) PreviewOrder(ctx context.Context, contractID int64, side strin
 		return Preview{}, fmt.Errorf("persist order preview audit: %w", err)
 	}
 
-	token, err := randomToken()
-	if err != nil {
-		return Preview{}, fmt.Errorf("create order confirmation: %w", err)
-	}
 	expiresAt := s.now().Add(previewLifetime)
-	s.removeExpiredPreviews()
-	s.previews[token] = pendingPreview{
+	s.preview = &pendingPreview{
 		order: order, accountID: account.AccountSummary.AccountID, instrument: snapshot.Instrument,
 		preview: brokerPreview, currentPosition: currentQuantity, expiresAt: expiresAt,
 	}
 	return Preview{
-		Token: token, ExpiresAt: expiresAt, Instrument: snapshot.Instrument,
+		ExpiresAt: expiresAt, Instrument: snapshot.Instrument,
 		Side: order.Side, Quantity: quantity,
 		EstimatedPrice: portfolio.Money{Amount: price.Value, Currency: snapshot.Currency, Available: true},
 		OrderAmount:    brokerPreview.OrderAmount, Commission: brokerPreview.Commission, Total: brokerPreview.Total,
@@ -184,15 +174,16 @@ func (s *Service) PreviewOrder(ctx context.Context, contractID int64, side strin
 }
 
 // ConfirmOrder consumes a preview once, rechecks holdings and cash, and submits its exact order.
-func (s *Service) ConfirmOrder(ctx context.Context, token string) (result Result, err error) {
+func (s *Service) ConfirmOrder(ctx context.Context) (result Result, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	pending, ok := s.previews[token]
-	delete(s.previews, token)
-	if !ok || !s.now().Before(pending.expiresAt) {
+	if s.preview == nil || !s.now().Before(s.preview.expiresAt) {
+		s.preview = nil
 		return Result{}, errors.New("the order preview expired; create a new preview before confirming")
 	}
+	pending := *s.preview
+	s.preview = nil
 	event := auditEventFromPending(pending)
 	defer func() {
 		if err != nil {
@@ -245,7 +236,7 @@ func (s *Service) ConfirmOrder(ctx context.Context, token string) (result Result
 	event.OrderID = result.OrderID
 	event.Status = result.Status
 	event.Messages = append([]string(nil), result.WarningMessages...)
-	if result.WarningToken != "" {
+	if result.ConfirmationRequired {
 		event.EventType = AuditBrokerWarning
 	} else {
 		event.EventType = AuditSubmissionAcknowledged
@@ -255,11 +246,11 @@ func (s *Service) ConfirmOrder(ctx context.Context, token string) (result Result
 }
 
 // RespondToWarning sends the user's explicit decision for an IBKR order warning.
-func (s *Service) RespondToWarning(ctx context.Context, token string, confirmed bool) (result Result, err error) {
+func (s *Service) RespondToWarning(ctx context.Context, confirmed bool) (result Result, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.warning == nil || token == "" || token != s.warning.token {
+	if s.warning == nil {
 		return Result{}, errors.New("the IBKR order warning is no longer active")
 	}
 	pending := s.warning.pending
@@ -296,7 +287,7 @@ func (s *Service) RespondToWarning(ctx context.Context, token string, confirmed 
 	event.OrderID = mapped.OrderID
 	event.Status = mapped.Status
 	event.Messages = append([]string(nil), mapped.WarningMessages...)
-	if mapped.WarningToken != "" {
+	if mapped.ConfirmationRequired {
 		event.EventType = AuditBrokerWarning
 	} else {
 		event.EventType = AuditSubmissionAcknowledged
@@ -305,17 +296,40 @@ func (s *Service) RespondToWarning(ctx context.Context, token string, confirmed 
 	return mapped, nil
 }
 
+// CancelPending discards an unsubmitted preview or explicitly rejects an active broker warning.
+func (s *Service) CancelPending(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.preview = nil
+	if s.warning == nil {
+		return nil
+	}
+	pending := s.warning.pending
+	event := auditEventFromPending(pending)
+	event.EventType = AuditWarningRejectionAttempted
+	if err := s.recordAudit(ctx, event); err != nil {
+		return fmt.Errorf("persist order warning cancellation audit: %w", err)
+	}
+	if _, err := s.orders.ReplyToOrder(ctx, s.warning.replyID, false); err != nil {
+		event.EventType = AuditWarningResponseFailed
+		event.ErrorText = err.Error()
+		s.recordAuditBestEffort(ctx, event)
+		return fmt.Errorf("cancel IBKR order warning: %w", err)
+	}
+	s.warning = nil
+	event.EventType = AuditWarningRejected
+	event.Status = "Cancelled"
+	s.recordAuditBestEffort(ctx, event)
+	return nil
+}
+
 func (s *Service) mapResult(result broker.OrderResult, pending pendingPreview) (Result, error) {
 	if result.BrokerError != "" {
 		return Result{}, errors.New(result.BrokerError)
 	}
 	if result.ReplyID != "" {
-		token, err := randomToken()
-		if err != nil {
-			return Result{}, fmt.Errorf("create broker warning confirmation: %w", err)
-		}
-		s.warning = &pendingWarning{token: token, replyID: result.ReplyID, pending: pending}
-		return Result{Status: "Warning", WarningToken: token, WarningMessages: result.Messages}, nil
+		s.warning = &pendingWarning{replyID: result.ReplyID, pending: pending}
+		return Result{Status: "Warning", ConfirmationRequired: true, WarningMessages: result.Messages}, nil
 	}
 	if result.OrderID == "" {
 		return Result{}, errors.New("IBKR did not return an order acknowledgement")
@@ -338,7 +352,9 @@ func (s *Service) recordAudit(ctx context.Context, event AuditEvent) error {
 		return nil
 	}
 	event.OccurredAt = s.now().UTC()
-	return s.recorder.RecordOrderAudit(context.WithoutCancel(ctx), event)
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return s.recorder.RecordOrderAudit(recordCtx, event)
 }
 
 func (s *Service) recordAuditBestEffort(ctx context.Context, event AuditEvent) {
@@ -399,23 +415,6 @@ func convertToBase(value portfolio.Money, baseCurrency string, rates []portfolio
 		}
 	}
 	return 0, false
-}
-
-func (s *Service) removeExpiredPreviews() {
-	now := s.now()
-	for token, preview := range s.previews {
-		if !now.Before(preview.expiresAt) {
-			delete(s.previews, token)
-		}
-	}
-}
-
-func randomToken() (string, error) {
-	bytes := make([]byte, 24)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
 }
 
 func formatQuantity(quantity float64) string {

@@ -1,7 +1,7 @@
 <script lang="ts">
   // TradingPanel.svelte owns order analysis, market-order entry, preview, and explicit confirmation.
   import { createEventDispatcher, onDestroy } from 'svelte'
-  import { ConfirmOrder, GetOrderAnalysis, PreviewOrder, RespondToOrderWarning } from '../../wailsjs/go/main/App.js'
+  import { CancelOrderDecision, ConfirmOrder, GetOrderAnalysis, PreviewOrder, RespondToOrderWarning } from '../../wailsjs/go/main/App.js'
   import CounselorResponse from './CounselorResponse.svelte'
   import { formatDate, formatError, formatMoney, formatNumber } from '../lib/format'
   import { classifyCounselorError } from '../lib/counselor-errors'
@@ -33,7 +33,7 @@
   onDestroy(() => {
     requestSequence++
     analysisSequence++
-    if (result?.WarningToken) void RespondToOrderWarning(result.WarningToken, false)
+    if (preview || result?.ConfirmationRequired) void CancelOrderDecision()
   })
 
   function selectSide(next: OrderSide): void {
@@ -44,6 +44,7 @@
   }
 
   function invalidateDecision(): void {
+    if (preview || result?.ConfirmationRequired) void CancelOrderDecision()
     requestSequence++
     analysisSequence++
     preview = null
@@ -99,15 +100,15 @@
   async function confirmOrder(): Promise<void> {
     if (!preview) return
     const request = ++requestSequence
-    const token = preview.Token
+    preview = null
     errorMessage = ''
     loading = true
     try {
-      const next = await ConfirmOrder(token)
+      const next = await ConfirmOrder()
       if (request !== requestSequence) return
       preview = null
       result = next
-      if (!next.WarningToken) dispatch('completed')
+      if (!next.ConfirmationRequired) dispatch('completed')
     } catch (error) {
       if (request === requestSequence) {
         preview = null
@@ -120,18 +121,20 @@
   }
 
   async function respondToWarning(confirmed: boolean): Promise<void> {
-    if (!result?.WarningToken) return
+    if (!result?.ConfirmationRequired) return
     const request = ++requestSequence
-    const token = result.WarningToken
+    const pendingResult = result
+    result = null
     errorMessage = ''
     loading = true
     try {
-      const next = await RespondToOrderWarning(token, confirmed)
+      const next = await RespondToOrderWarning(confirmed)
       if (request !== requestSequence) return
       result = next
-      if (!next.WarningToken && confirmed) dispatch('completed')
+      if (!next.ConfirmationRequired && confirmed) dispatch('completed')
     } catch (error) {
       if (request === requestSequence) {
+        result = pendingResult
         errorMessage = formatError(error)
         reportSessionIssue(errorMessage)
       }
@@ -175,7 +178,7 @@
         {analysisLoading ? analysisWorkflow.loading : analysisWorkflow.action}
       </button>
       <button class="preview-button" type="submit" disabled={loading || analysisLoading || !canPreviewOrder(side, Number(quantity), availableToSell)}>
-        {loading && !preview && !result?.WarningToken ? 'Checking order...' : `Preview ${side.toLowerCase()}`}
+        {loading && !preview && !result?.ConfirmationRequired ? 'Checking order...' : `Preview ${side.toLowerCase()}`}
       </button>
     </div>
   </form>
@@ -217,7 +220,7 @@
         <button type="button" class="confirm" disabled={loading} on:click={confirmOrder}>{loading ? 'Submitting...' : `Confirm ${preview.Side.toLowerCase()}`}</button>
       </div>
     </section>
-  {:else if result?.WarningToken}
+  {:else if result?.ConfirmationRequired}
     <section class="order-preview warning" aria-label="IBKR order warning">
       <div class="preview-title"><h3>IBKR requires another confirmation</h3></div>
       {#each result.WarningMessages as message}<p class="broker-warning">{message}</p>{/each}

@@ -116,7 +116,9 @@ func (e *Executor) executeDefinition(
 		if executionErr != nil {
 			record.ErrorText = executionErr.Error()
 		}
-		if recordErr := e.recorder.RecordPromptExecution(context.WithoutCancel(ctx), record); recordErr != nil && executionErr == nil {
+		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if recordErr := e.recorder.RecordPromptExecution(recordCtx, record); recordErr != nil && executionErr == nil {
 			executionErr = fmt.Errorf("persist prompt execution: %w", recordErr)
 		}
 	}()

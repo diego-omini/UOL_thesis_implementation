@@ -14,6 +14,7 @@
   import AppHeader from './components/AppHeader.svelte'
   import AuthenticationView from './components/AuthenticationView.svelte'
   import { formatError } from './lib/format'
+  import { acceptsAuthenticatedResponse } from './lib/session-requests'
   import type { InstrumentSearchResultView, PortfolioView, PositionView, SessionStatus } from './lib/types'
   import PortfolioDashboard from './views/PortfolioDashboard.svelte'
   import StockDetailView from './views/StockDetailView.svelte'
@@ -32,6 +33,7 @@
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null
   let sessionSequence = 0
   let dataGeneration = 0
+  let appHeader: AppHeader
 
   $: selectedPosition = selectedStock && portfolio
     ? portfolio.Positions.find(position =>
@@ -264,22 +266,22 @@
   // refreshPortfolio accepts a snapshot only for the active authenticated data generation.
   async function refreshPortfolio(): Promise<void> {
     if (!session?.Ready || loading) return
-    const sessionAtStart = sessionSequence
+    const request = { session: sessionSequence, generation: dataGeneration + 1 }
     const generation = ++dataGeneration
     loading = true
     errorMessage = ''
     try {
       const nextPortfolio = await GetPortfolio()
-      if (sessionAtStart === sessionSequence && generation === dataGeneration && session?.Ready) {
+      if (acceptsAuthenticatedResponse(request, sessionSequence, dataGeneration, Boolean(session?.Ready))) {
         portfolio = nextPortfolio
       }
     } catch (error) {
-      if (sessionAtStart !== sessionSequence || generation !== dataGeneration) return
+      if (!acceptsAuthenticatedResponse(request, sessionSequence, dataGeneration, Boolean(session?.Ready))) return
       portfolio = null
       await refreshSession()
       if (session?.Ready) errorMessage = formatError(error)
     } finally {
-      if (sessionAtStart === sessionSequence && generation === dataGeneration) loading = false
+      if (request.session === sessionSequence && generation === dataGeneration) loading = false
     }
   }
 
@@ -302,6 +304,7 @@
   function showDashboard(): void {
     selectedStock = null
     window.scrollTo({ top: 0, behavior: 'smooth' })
+    void tick().then(() => appHeader?.focusDashboard())
   }
 </script>
 
@@ -320,6 +323,7 @@
     />
   {:else}
     <AppHeader
+      bind:this={appHeader}
       portfolioLoading={loading}
       {authAction}
       on:dashboard={showDashboard}

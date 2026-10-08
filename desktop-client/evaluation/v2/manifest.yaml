@@ -1,0 +1,15 @@
+suite_id: portfolio-prompt-comparison
+version: 2
+motivation: Version 1 produced no schema-valid responses, creating a structural floor effect; version 2 evaluates the same comparison with provider-enforced structured output.
+relationship_to_v1: Version 2 is a separate experiment and does not replace, rescore, or alter version 1.
+model: llama3.2:latest
+expected_model_digest: a80c4f17acd55265feec403c7aef86be0c25983ab279d83f3bcd3abbcb5b8b72
+repetitions: 5
+order_strategy: alternating
+request_timeout_seconds: 180
+settings:
+  temperature: 0
+  max_tokens: 3072
+  seed: 42
+  context_size: 8192
+output_limit_rationale: The schema permits at most six concise observations and five limitations. Its field limits keep the expected response below approximately 8000 characters; 3072 output tokens provides margin above that bounded response while remaining finite and equal for both conditions.

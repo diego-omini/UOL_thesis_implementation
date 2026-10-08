@@ -89,3 +89,21 @@ func TestCalculateFirstPositionProducesFullResultingWeight(t *testing.T) {
 		t.Fatalf("unexpected first-position weights: current=%#v resulting=%#v", result.CurrentWeight, result.ResultingWeight)
 	}
 }
+
+func TestCalculateUsesLatestCloseForDuplicateDate(t *testing.T) {
+	start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	snapshot := portfolio.StockSnapshot{Instrument: portfolio.Instrument{ContractID: 42, AssetClass: "STK", Currency: "USD"}, Currency: "USD", AskPrice: portfolio.OptionalNumber{Value: 12, Available: true}}
+	account := portfolio.Portfolio{AccountSummary: portfolio.AccountSummary{CashBalance: portfolio.Money{Amount: 100, Currency: "USD", Available: true}, NetLiquidation: portfolio.Money{Amount: 100, Currency: "USD", Available: true}}}
+	history := portfolio.StockHistory{Points: []portfolio.StockHistoryPoint{
+		{Time: start, Close: 10},
+		{Time: start.Add(2 * time.Hour), Close: 20},
+		{Time: start.AddDate(0, 0, 1), Close: 30},
+	}}
+	result, err := Calculate(snapshot, history, account, "BUY", 1, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HistoryObservations != 2 || math.Abs(result.TotalReturn.Value-.5) > 1e-9 {
+		t.Fatalf("duplicate date distorted history metrics: %+v", result)
+	}
+}

@@ -52,7 +52,7 @@ func (p *OllamaResearchProvider) Search(ctx context.Context, query string, maxim
 		return nil, err
 	}
 	if response.Error != "" {
-		return nil, fmt.Errorf("Ollama web search failed: %s", response.Error)
+		return nil, fmt.Errorf("Ollama web search failed: %s", boundedProviderMessage(response.Error))
 	}
 	return response.Results, nil
 }
@@ -64,7 +64,7 @@ func (p *OllamaResearchProvider) Fetch(ctx context.Context, sourceURL string) (F
 		return FetchedSource{}, err
 	}
 	if response.Error != "" {
-		return FetchedSource{}, fmt.Errorf("Ollama web fetch failed: %s", response.Error)
+		return FetchedSource{}, fmt.Errorf("Ollama web fetch failed: %s", boundedProviderMessage(response.Error))
 	}
 	return FetchedSource{Title: response.Title, URL: sourceURL, Content: response.Content}, nil
 }
@@ -89,9 +89,12 @@ func (p *OllamaResearchProvider) post(ctx context.Context, path string, payload 
 		return fmt.Errorf("Ollama web research is not reachable: %w", err)
 	}
 	defer response.Body.Close()
-	contents, err := io.ReadAll(io.LimitReader(response.Body, maxResearchResponseBytes))
+	contents, err := io.ReadAll(io.LimitReader(response.Body, maxResearchResponseBytes+1))
 	if err != nil {
 		return fmt.Errorf("read Ollama research response: %w", err)
+	}
+	if len(contents) > maxResearchResponseBytes {
+		return fmt.Errorf("Ollama web research response exceeded the %d-byte limit", maxResearchResponseBytes)
 	}
 	if err := json.Unmarshal(contents, target); err != nil {
 		return fmt.Errorf("Ollama web research returned an invalid response: %w", err)

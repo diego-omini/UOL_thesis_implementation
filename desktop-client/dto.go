@@ -357,7 +357,6 @@ type CounselorResponseView struct {
 }
 
 type OrderPreviewView struct {
-	Token             string
 	ExpiresAt         string
 	Instrument        InstrumentView
 	Side              string
@@ -373,10 +372,10 @@ type OrderPreviewView struct {
 }
 
 type OrderResultView struct {
-	OrderID         string
-	Status          string
-	WarningToken    string
-	WarningMessages []string
+	OrderID              string
+	Status               string
+	ConfirmationRequired bool
+	WarningMessages      []string
 }
 
 func toConnectionStatusView(status bool, message string) ConnectionStatusView {
@@ -554,7 +553,7 @@ func toStockHistoryView(history portfolio.StockHistory) StockHistoryView {
 
 func toOrderPreviewView(preview trading.Preview) OrderPreviewView {
 	return OrderPreviewView{
-		Token: preview.Token, ExpiresAt: preview.ExpiresAt.Format(time.RFC3339),
+		ExpiresAt:  preview.ExpiresAt.Format(time.RFC3339),
 		Instrument: InstrumentView(preview.Instrument), Side: string(preview.Side), Quantity: preview.Quantity,
 		EstimatedPrice: toMoneyView(preview.EstimatedPrice), OrderAmount: toMoneyView(preview.OrderAmount),
 		Commission: toMoneyView(preview.Commission), Total: toMoneyView(preview.Total), CashBalance: toMoneyView(preview.CashBalance),
@@ -565,7 +564,7 @@ func toOrderPreviewView(preview trading.Preview) OrderPreviewView {
 func toOrderResultView(result trading.Result) OrderResultView {
 	return OrderResultView{
 		OrderID: result.OrderID, Status: result.Status,
-		WarningToken: result.WarningToken, WarningMessages: result.WarningMessages,
+		ConfirmationRequired: result.ConfirmationRequired, WarningMessages: result.WarningMessages,
 	}
 }
 

@@ -3,6 +3,7 @@ package fundholdings
 // This file parses the official iShares full-holdings CSV for an exact registry of supported funds.
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"fmt"
@@ -20,6 +21,7 @@ const (
 	iSharesSourceType = "official_issuer_full_holdings_csv"
 	iSharesCacheTTL   = 6 * time.Hour
 	iSharesStaleAfter = 14 * 24 * time.Hour
+	maxIssuerCSVBytes = 8 << 20
 )
 
 type iSharesFund struct {
@@ -93,8 +95,14 @@ func (s *ISharesSource) Fetch(ctx context.Context, instrument portfolio.Instrume
 	if response.StatusCode != http.StatusOK {
 		return failure, fmt.Errorf("issuer returned HTTP %d", response.StatusCode)
 	}
-
-	value, err := parseISharesCSV(response.Body, instrument, fund.URL, retrievedAt)
+	contents, err := io.ReadAll(io.LimitReader(response.Body, maxIssuerCSVBytes+1))
+	if err != nil {
+		return failure, fmt.Errorf("read issuer CSV: %w", err)
+	}
+	if len(contents) > maxIssuerCSVBytes {
+		return failure, fmt.Errorf("issuer CSV exceeded the %d-byte limit", maxIssuerCSVBytes)
+	}
+	value, err := parseISharesCSV(bytes.NewReader(contents), instrument, fund.URL, retrievedAt)
 	if err != nil {
 		return failure, err
 	}

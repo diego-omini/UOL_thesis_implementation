@@ -56,3 +56,15 @@ func TestCalculateRejectsInsufficientCommonHistory(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestDailyReturnsUsesLatestCloseForDuplicateDate(t *testing.T) {
+	start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	returns, _ := dailyReturns([]portfolio.StockHistoryPoint{
+		{Time: start, Close: 10},
+		{Time: start.Add(time.Hour), Close: 20},
+		{Time: start.AddDate(0, 0, 1), Close: 30},
+	})
+	if len(returns) != 1 || math.Abs(returns["2026-01-02"]-.5) > 1e-9 {
+		t.Fatalf("duplicate date distorted returns: %#v", returns)
+	}
+}

@@ -26,6 +26,11 @@
   let searchTimer: ReturnType<typeof setTimeout> | null = null
   let closeTimer: ReturnType<typeof setTimeout> | null = null
   let searchSequence = 0
+  let dashboardButton: HTMLButtonElement
+
+  export function focusDashboard(): void {
+    dashboardButton?.focus()
+  }
 
   onDestroy(() => {
     searchSequence++
@@ -150,7 +155,7 @@
 </script>
 
 <header class="app-header">
-  <button class="dashboard-link" type="button" on:click={showDashboard} aria-label="Open portfolio dashboard">
+  <button bind:this={dashboardButton} class="dashboard-link" type="button" on:click={showDashboard} aria-label="Open portfolio dashboard">
     <span class="eyebrow">IBKR paper trading</span>
     <h1>Portfolio dashboard</h1>
   </button>

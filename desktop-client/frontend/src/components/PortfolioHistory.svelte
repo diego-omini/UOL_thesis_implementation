@@ -1,6 +1,6 @@
 <script lang="ts">
   // PortfolioHistory.svelte separates account-value observations from locally tracked analytics.
-  import { onDestroy, onMount } from 'svelte'
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte'
   import { GetPortfolioHistory, GetPortfolioHistorySummary, OpenPortfolioHistoryConnection } from '../../wailsjs/go/main/App.js'
   import CounselorAction from './CounselorAction.svelte'
   import { formatDate, formatError } from '../lib/format'
@@ -20,6 +20,9 @@
   import type { PortfolioHistoryMetric, PortfolioHistoryRange } from '../lib/portfolio-history'
   import type { PortfolioHistoryView } from '../lib/types'
   import { workflowCopy } from '../lib/counselor-workflows'
+  import { classifyCounselorError } from '../lib/counselor-errors'
+
+  const dispatch = createEventDispatcher<{ sessionIssue: void }>()
 
   let selectedRange: PortfolioHistoryRange = '30d'
   let selectedMode: 'value' | 'tracking' = 'value'
@@ -83,6 +86,8 @@
       if (sequence === requestSequence) {
         history = null
         errorMessage = formatError(error)
+        const kind = classifyCounselorError(errorMessage).kind
+        if (kind === 'session' || kind === 'broker') dispatch('sessionIssue')
       }
     } finally {
       if (sequence === requestSequence) loading = false
@@ -180,6 +185,7 @@
     unavailableReason={loading ? 'Historical data is still loading.' : 'No observations are available in the selected range.'}
     resetOn={`${selectedRange}:${history?.To ?? ''}`}
     currentContextAsOf={history?.To ?? ''}
+    on:sessionIssue={() => dispatch('sessionIssue')}
   />
 
   <div class="data-definition">

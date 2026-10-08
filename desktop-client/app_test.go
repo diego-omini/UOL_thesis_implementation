@@ -69,10 +69,10 @@ func TestSyncPortfolioNAVHistoryPersistsOnceInsidePacingWindow(t *testing.T) {
 		ctx: context.Background(), store: store, portfolioHistory: provider,
 		historyImports: make(map[string]historyImportState),
 	}
-	if state := app.syncPortfolioNAVHistory("DU-1", now); state.warning != "" {
+	if state := app.syncPortfolioNAVHistory(context.Background(), "DU-1", now); state.warning != "" {
 		t.Fatalf("unexpected import warning: %s", state.warning)
 	}
-	if state := app.syncPortfolioNAVHistory("DU-1", now.Add(time.Minute)); state.warning != "" {
+	if state := app.syncPortfolioNAVHistory(context.Background(), "DU-1", now.Add(time.Minute)); state.warning != "" {
 		t.Fatalf("unexpected cached import warning: %s", state.warning)
 	}
 	if provider.calls != 1 {
@@ -126,7 +126,7 @@ func TestSyncPortfolioNAVHistoryFallsBackToSnapTrade(t *testing.T) {
 		portfolioHistory: &stubPortfolioHistoryProvider{err: errors.New("PortfolioAnalyst unavailable")},
 		snapTradeHistory: external, historyImports: make(map[string]historyImportState),
 	}
-	state := app.syncPortfolioNAVHistory("DU-1", now)
+	state := app.syncPortfolioNAVHistory(context.Background(), "DU-1", now)
 	if state.connectionRequired || external.calls != 1 || state.warning == "" {
 		t.Fatalf("unexpected fallback state: %+v calls=%d", state, external.calls)
 	}
@@ -135,5 +135,21 @@ func TestSyncPortfolioNAVHistoryFallsBackToSnapTrade(t *testing.T) {
 	})
 	if err != nil || result.EstimatedPointCount != 1 {
 		t.Fatalf("estimated history was not persisted: result=%+v err=%v", result, err)
+	}
+}
+
+func TestBeginOperationCancelsSupersededRequest(t *testing.T) {
+	app := &App{ctx: context.Background(), operations: make(map[string]operationState)}
+	first, finishFirst := app.beginOperation("counselor", time.Minute)
+	defer finishFirst()
+	second, finishSecond := app.beginOperation("counselor", time.Minute)
+	defer finishSecond()
+	select {
+	case <-first.Done():
+	default:
+		t.Fatal("superseded operation was not cancelled")
+	}
+	if second.Err() != nil {
+		t.Fatalf("replacement operation was cancelled: %v", second.Err())
 	}
 }

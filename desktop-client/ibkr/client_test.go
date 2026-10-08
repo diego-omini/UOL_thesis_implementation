@@ -483,6 +483,18 @@ func TestGatewayHTTPErrorIncludesJSONMessage(t *testing.T) {
 	}
 }
 
+func TestGatewayRejectsOversizedSuccessfulResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"value":"` + strings.Repeat("x", maxGatewayResponseBytes) + `"}`))
+	}))
+	defer server.Close()
+	var response any
+	err := NewClient(server.URL, false).getJSON(context.Background(), "/test", &response)
+	if err == nil || !strings.Contains(err.Error(), "byte limit") {
+		t.Fatalf("oversized response error = %v", err)
+	}
+}
+
 func TestSubmitOrderDecodesAcknowledgementWarningAndRejection(t *testing.T) {
 	responses := []string{
 		`[{"order_id":12345,"order_status":"Submitted"}]`,

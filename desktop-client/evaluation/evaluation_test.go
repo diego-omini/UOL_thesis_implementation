@@ -4,11 +4,16 @@ package evaluation
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +21,202 @@ import (
 	"wails/ai"
 	"wails/analytics"
 )
+
+func TestLoadV2SuiteVerifiesFrozenProtocolAndFreshAnalytics(t *testing.T) {
+	suite, err := LoadV2Suite()
+	if err != nil {
+		t.Fatalf("LoadV2Suite returned an error: %v", err)
+	}
+	if suite.Manifest.Version != 2 || suite.Manifest.Repetitions != 5 || suite.Manifest.Settings.MaxTokens != 3072 {
+		t.Fatalf("unexpected version 2 manifest: %+v", suite.Manifest)
+	}
+	if len(suite.Conditions) != 2 || len(suite.Scenarios) != 3 || len(suite.ProtocolHashes.Definitions) != 8 {
+		t.Fatalf("unexpected version 2 dimensions or hashes")
+	}
+	for _, scenario := range suite.Scenarios {
+		metrics := metricLookup(buildMetrics(scenario.Portfolio, analytics.Calculate(scenario.Portfolio, scenario.SnapshotAt)))
+		for _, expected := range scenario.RequiredFacts {
+			if metric := metrics[expected.MetricID]; !metric.Available || math.Abs(metric.Value-expected.Value) > expected.Tolerance {
+				t.Fatalf("scenario %s no longer matches %s", scenario.ID, expected.MetricID)
+			}
+		}
+	}
+}
+
+func TestVersion1DefinitionsAndResultsRemainUnchanged(t *testing.T) {
+	expected := map[string]string{
+		"manifest.yaml": "1d6ba8daf00df2f6b9c6dbeffaa769632bf05cd594d201e4fe6df2e5bf18489d",
+		"conditions.yaml": "11175aafe0bfeb8ebccd746f3e39e110b19f983f38d388f06c155e614e79b0f7",
+		"manual_rubric.yaml": "e48345fd06411a8cfc352f44b95b6fa83d39ea5158179f8e86abcb7e663d52ff",
+		"scenarios/01_concentrated_multicurrency.json": "5e1ef100ce7b49b372a1e1b61c3c0ad6c084a5e4c5ec9a7b0f8ad9ef7281a8ab",
+		"scenarios/02_diversified_mixed_exposure.json": "0a6d4f0b1571498189d9303f1a241cc9fa4f5689077ab89558707e65fdc1f836",
+		"scenarios/03_incomplete_data.json": "09578c37eb32b5fe54271db0acaa6c56a6955d6d3262b4189ea67d5082b74f14",
+		"results/portfolio-prompt-comparison-v1-20260928T075931Z.json": "35444f619e968a93b8ecf891981c97a1086dd049f6f4608beb0111428b72ce96",
+		"results/portfolio-prompt-comparison-v1-20260928T075931Z-analysis.md": "bd13c6b7e970b924bcdb16384578cfd675dde1562aef418b3a5b28daebea7649",
+	}
+	for path, digest := range expected {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read frozen version 1 artifact %s: %v", path, err)
+		}
+		actual := fmt.Sprintf("%x", sha256.Sum256(contents))
+		if actual != digest {
+			t.Fatalf("version 1 artifact %s changed: %s", path, actual)
+		}
+	}
+}
+
+func TestV2StrictDecodingAndSemanticValidation(t *testing.T) {
+	valid := `{
+		"summary":"Concise summary.",
+		"observations":[{"category":"general_information","statement":"General context.","supporting_ids":[],"reported_values":[],"severity":"informational","limitations":[]}],
+		"limitations":[],
+		"safety":{"claims_trade_execution":false,"contains_trade_instruction":false,"disclaimer":"General information; no trade was executed."}
+	}`
+	response, err := parseV2Response(valid)
+	if err != nil {
+		t.Fatalf("parse valid response: %v", err)
+	}
+	if err := validateV2Response(response, Condition{ID: "baseline"}, map[string]v2Evidence{}); err != nil {
+		t.Fatalf("validate response: %v", err)
+	}
+
+	unknownField := strings.Replace(valid, `"summary":"Concise summary."`, `"summary":"Concise summary.","extra":true`, 1)
+	if _, err := parseV2Response(unknownField); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("expected unknown-field rejection, got %v", err)
+	}
+	invalidEnum := strings.Replace(valid, `"severity":"informational"`, `"severity":"urgent"`, 1)
+	if _, err := parseV2Response(invalidEnum); err == nil || !strings.Contains(err.Error(), "invalid severity") {
+		t.Fatalf("expected enum rejection, got %v", err)
+	}
+	numericString := strings.Replace(valid, `"reported_values":[]`, `"reported_values":[{"reference_id":"portfolio.gross_exposure","value":"10","unit":"money","currency":"USD","source":"self_derived"}]`, 1)
+	if _, err := parseV2Response(numericString); err == nil || !strings.Contains(err.Error(), "cannot unmarshal string") {
+		t.Fatalf("expected numeric-string rejection, got %v", err)
+	}
+	if _, err := parseV2Response(valid + `{}`); err == nil || !strings.Contains(err.Error(), "trailing JSON") {
+		t.Fatalf("expected trailing-data rejection, got %v", err)
+	}
+}
+
+func TestV2RejectsUnknownEvidenceIdentifiers(t *testing.T) {
+	text := `{
+		"summary":"Summary.",
+		"observations":[{"category":"raw_fact","statement":"Claim.","supporting_ids":["unknown.fact"],"reported_values":[],"severity":"informational","limitations":[]}],
+		"limitations":[],
+		"safety":{"claims_trade_execution":false,"contains_trade_instruction":false,"disclaimer":"No trade was executed."}
+	}`
+	response, err := parseV2Response(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateV2Response(response, Condition{ID: "baseline"}, map[string]v2Evidence{}); err == nil || !strings.Contains(err.Error(), "unknown fact or metric") {
+		t.Fatalf("expected unknown-evidence rejection, got %v", err)
+	}
+}
+
+func TestV2RunnerSuppliesExactSameSchemaAndSettings(t *testing.T) {
+	suite, err := LoadV2Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	suite.Manifest.Repetitions = 1
+	suite.Scenarios = suite.Scenarios[:1]
+	provider := &capturingProvider{response: validV2Response()}
+	bundle := NewV2Runner(provider).Run(context.Background(), suite, Environment{}, "pilot", SchemaPreflight{Passed: true})
+	if len(bundle.Runs) != 2 || len(provider.requests) != 2 {
+		t.Fatalf("expected two calls, got %d", len(provider.requests))
+	}
+	if !reflect.DeepEqual(provider.requests[0].ResponseSchema, suite.ResponseSchema) || !reflect.DeepEqual(provider.requests[1].ResponseSchema, suite.ResponseSchema) {
+		t.Fatal("provider did not receive the exact frozen response schema")
+	}
+	if provider.requests[0].Settings != provider.requests[1].Settings || len(provider.requests[0].Tools) != 0 || len(provider.requests[1].Tools) != 0 {
+		t.Fatal("conditions did not receive equal settings and empty tool sets")
+	}
+}
+
+func TestV2RunnerAlternatesAndRetainsEveryFailure(t *testing.T) {
+	suite, err := LoadV2Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	suite.Manifest.Repetitions = 2
+	suite.Scenarios = suite.Scenarios[:1]
+	provider := &capturingProvider{err: errors.New("provider unavailable")}
+	bundle := NewV2Runner(provider).Run(context.Background(), suite, Environment{}, "pilot", SchemaPreflight{Passed: true})
+	if len(bundle.Runs) != 4 {
+		t.Fatalf("expected all four failures retained, got %d", len(bundle.Runs))
+	}
+	order := []string{bundle.Runs[0].ConditionID, bundle.Runs[1].ConditionID, bundle.Runs[2].ConditionID, bundle.Runs[3].ConditionID}
+	if strings.Join(order, ",") != "baseline,proposed,proposed,baseline" {
+		t.Fatalf("unexpected alternating order: %v", order)
+	}
+	for _, run := range bundle.Runs {
+		if run.FailureKind != "provider_failure" || run.Score.SchemaValid {
+			t.Fatalf("failure was not retained correctly: %+v", run)
+		}
+	}
+}
+
+func TestV2TruncationAndMalformedJSONRemainFailures(t *testing.T) {
+	suite, err := LoadV2Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	suite.Manifest.Repetitions = 1
+	suite.Scenarios = suite.Scenarios[:1]
+	provider := &capturingProvider{response: `{"summary":`, finishReason: "length"}
+	bundle := NewV2Runner(provider).Run(context.Background(), suite, Environment{}, "pilot", SchemaPreflight{Passed: true})
+	for _, run := range bundle.Runs {
+		if run.FailureKind != "truncation" || run.RawResponse == "" {
+			t.Fatalf("truncation was not retained: %+v", run)
+		}
+	}
+	if got := classifyV2ParseFailure("stop", errors.New("invalid character")); got != "malformed_json" {
+		t.Fatalf("unexpected malformed JSON classification: %s", got)
+	}
+}
+
+func TestV2AggregatesUseSchemaValidDenominators(t *testing.T) {
+	validScore := RunScore{SchemaValid: true, RequiredFactCoverage: 0.5, NumericalAccuracy: 1, Grounding: 1, SafetyCompliance: 1}
+	runs := []V2RunResult{
+		{ConditionID: "baseline", ScenarioID: "one", Score: validScore},
+		{ConditionID: "baseline", ScenarioID: "one", FailureKind: "structural_validation", Score: invalidScore()},
+	}
+	summary := summarizeV2Runs(runs, []Condition{{ID: "baseline"}})[0]
+	if summary.SchemaValidity != 0.5 || summary.RequiredFactCoverage.Denominator != 1 || summary.RequiredFactCoverage.Value == nil || *summary.RequiredFactCoverage.Value != 0.5 {
+		t.Fatalf("unexpected explicit denominators: %+v", summary)
+	}
+}
+
+func TestSaveV2BundleUsesSeparateAtomicVersionedArtifacts(t *testing.T) {
+	suite, err := LoadV2Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := V2Bundle{
+		CreatedAt: time.Date(2026, 10, 7, 8, 30, 0, 0, time.UTC), RunKind: "final",
+		Manifest: suite.Manifest,
+		Runs: []V2RunResult{{Sequence: 1, ScenarioID: "scenario", ConditionID: "baseline", ConditionVersion: 2, RawResponse: "response"}},
+	}
+	directory := t.TempDir()
+	paths, err := SaveV2Bundle(directory, bundle)
+	if err != nil {
+		t.Fatalf("SaveV2Bundle returned an error: %v", err)
+	}
+	if !strings.Contains(filepath.Base(paths.BundlePath), "-v2-final-") {
+		t.Fatalf("unexpected versioned name: %s", paths.BundlePath)
+	}
+	review, err := os.ReadFile(paths.ReviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(review), "condition_id") {
+		t.Fatal("blind review file disclosed condition identity")
+	}
+	if _, err := SaveV2Bundle(directory, bundle); err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Fatalf("expected overwrite protection, got %v", err)
+	}
+}
 
 func TestLoadSuiteValidatesFrozenFacts(t *testing.T) {
 	manifest, conditions, scenarios, rubric, err := LoadSuite()
@@ -142,4 +343,31 @@ type staticProvider struct {
 
 func (p *staticProvider) Chat(_ context.Context, _ ai.ChatRequest) (ai.ChatResponse, error) {
 	return ai.ChatResponse{Model: "test-model", Message: ai.Message{Role: "assistant", Content: p.response}}, nil
+}
+
+type capturingProvider struct {
+	requests     []ai.ChatRequest
+	response     string
+	finishReason string
+	err          error
+}
+
+func (p *capturingProvider) Chat(_ context.Context, request ai.ChatRequest) (ai.ChatResponse, error) {
+	p.requests = append(p.requests, request)
+	if p.err != nil {
+		return ai.ChatResponse{}, p.err
+	}
+	return ai.ChatResponse{
+		Model: "llama3.2:latest", FinishReason: p.finishReason,
+		Message: ai.Message{Role: "assistant", Content: p.response},
+	}, nil
+}
+
+func validV2Response() string {
+	return `{
+		"summary":"Concise summary.",
+		"observations":[{"category":"general_information","statement":"General context.","supporting_ids":[],"reported_values":[],"severity":"informational","limitations":[]}],
+		"limitations":[],
+		"safety":{"claims_trade_execution":false,"contains_trade_instruction":false,"disclaimer":"General information; no trade was executed."}
+	}`
 }

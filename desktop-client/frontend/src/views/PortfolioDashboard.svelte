@@ -49,7 +49,7 @@
   on:sessionIssue={() => dispatch('sessionIssue')}
 />
 
-<PortfolioHistory />
+<PortfolioHistory on:sessionIssue={() => dispatch('sessionIssue')} />
 <PortfolioRiskAnalysis on:sessionIssue={() => dispatch('sessionIssue')} />
 
 {#if portfolio.Analytics.ExchangeRates.some(rate => rate.Available && rate.Currency !== rate.BaseCurrency)}

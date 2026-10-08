@@ -25,6 +25,7 @@ import (
 
 const (
 	maxPositionPages                      = 100
+	maxGatewayResponseBytes               = 8 << 20
 	ledgerRateSource                      = "IBKR account ledger"
 	brokerageSessionInitializationTimeout = 5 * time.Second
 	brokerageSessionPollInterval          = 250 * time.Millisecond
@@ -275,6 +276,9 @@ func (n *decimalNumber) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("parse numeric string %q: %w", raw, err)
 		}
+		if math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			return fmt.Errorf("parse numeric string %q: value is not finite", raw)
+		}
 
 		n.value = parsed
 		n.valid = true
@@ -285,6 +289,9 @@ func (n *decimalNumber) UnmarshalJSON(data []byte) error {
 
 	if err != nil {
 		return fmt.Errorf("parse numeric value %q: %w", text, err)
+	}
+	if math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return fmt.Errorf("parse numeric value %q: value is not finite", text)
 	}
 
 	n.value = parsed
@@ -850,7 +857,7 @@ func (c *Client) PreviewOrder(ctx context.Context, accountID string, order broke
 		return broker.OrderPreview{}, err
 	}
 	if strings.TrimSpace(response.Error) != "" {
-		return broker.OrderPreview{}, errors.New(strings.TrimSpace(response.Error))
+		return broker.OrderPreview{}, errors.New(boundedErrorMessage(response.Error))
 	}
 	orderAmount := parseOrderMoney(response.Amount.Amount)
 	commission := parseOrderMoney(response.Amount.Commission)
@@ -867,7 +874,7 @@ func (c *Client) PreviewOrder(ctx context.Context, accountID string, order broke
 	}
 	warnings := []string{}
 	if warning := strings.TrimSpace(response.Warning); warning != "" {
-		warnings = append(warnings, warning)
+		warnings = append(warnings, boundedErrorMessage(warning))
 	}
 	return broker.OrderPreview{
 		OrderAmount: orderAmount, Commission: commission, Total: total,
@@ -923,9 +930,13 @@ func (c *Client) sendOrderRequest(ctx context.Context, path string, body any) (b
 		return broker.OrderResult{}, errors.New("IBKR returned an empty order response")
 	}
 	item := items[0]
+	messages := make([]string, 0, len(item.Message))
+	for _, message := range item.Message {
+		messages = append(messages, boundedErrorMessage(message))
+	}
 	return broker.OrderResult{
 		OrderID: rawScalarString(item.OrderID), Status: item.Status,
-		ReplyID: item.ReplyID, Messages: item.Message, BrokerError: strings.TrimSpace(item.Error),
+		ReplyID: item.ReplyID, Messages: messages, BrokerError: boundedErrorMessage(item.Error),
 	}, nil
 }
 
@@ -1051,7 +1062,8 @@ func parseMarketNumber(value json.RawMessage) (float64, bool) {
 		}
 	}
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
-	return parsed * multiplier, err == nil
+	result := parsed * multiplier
+	return result, err == nil && !math.IsNaN(result) && !math.IsInf(result, 0)
 }
 
 func rawString(value json.RawMessage) string {
@@ -1306,11 +1318,17 @@ func (c *Client) requestJSON(ctx context.Context, method, path string, body, tar
 		}
 	}
 
-	if target == nil {
-		_, err := io.Copy(io.Discard, resp.Body)
-		return err
+	contents, err := io.ReadAll(io.LimitReader(resp.Body, maxGatewayResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+	if len(contents) > maxGatewayResponseBytes {
+		return fmt.Errorf("gateway response exceeded the %d-byte limit", maxGatewayResponseBytes)
+	}
+	if target == nil || len(strings.TrimSpace(string(contents))) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(contents, target); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -1434,7 +1452,7 @@ func parseDecimalString(value string) (float64, bool) {
 
 	parsed, err := strconv.ParseFloat(cleaned, 64)
 
-	if err != nil {
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
 		return 0, false
 	}
 

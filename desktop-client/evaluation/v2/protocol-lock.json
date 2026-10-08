@@ -1,0 +1,13 @@
+{
+  "algorithm": "sha256",
+  "definitions": {
+    "v2/manifest.yaml": "2a15763e828280d25ba22b0ce87bbff7e92f16e4373dab66f867401e7295dd0f",
+    "v2/conditions.yaml": "91fc352ab4863b6f193d9b7cb050beb7dc7a3966f6bb028f59da69a334d97d69",
+    "v2/response_schema.json": "85e8ecb9d7c9c40a5279fe6bbedfee13de1a3672c3575f1dbf9498d74272d3a4",
+    "v2/scoring_rules.yaml": "62b9f3689c7eba62e9bdda2069709fdcd6efa1d51a11f7cfe02a0e5334f90154",
+    "v2/manual_rubric.yaml": "7bca466f4b655ba0ac9e61896c1e2c11a8b2de9dbc020d2c6ecbdde6ba0cf428",
+    "scenarios/01_concentrated_multicurrency.json": "5e1ef100ce7b49b372a1e1b61c3c0ad6c084a5e4c5ec9a7b0f8ad9ef7281a8ab",
+    "scenarios/02_diversified_mixed_exposure.json": "0a6d4f0b1571498189d9303f1a241cc9fa4f5689077ab89558707e65fdc1f836",
+    "scenarios/03_incomplete_data.json": "09578c37eb32b5fe54271db0acaa6c56a6955d6d3262b4189ea67d5082b74f14"
+  }
+}

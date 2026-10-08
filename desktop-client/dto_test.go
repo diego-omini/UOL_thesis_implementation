@@ -3,19 +3,38 @@ package main
 // This file verifies frontend DTO mapping for portfolio analysis results.
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"wails/ai"
 	"wails/persistence"
+	"wails/portfolio"
 	"wails/portfolioanalysis"
 	"wails/portfoliohistory"
+	"wails/trading"
 )
 
 func TestToPortfolioRiskAnalysisViewReturnsEmptyCollections(t *testing.T) {
 	view := toPortfolioRiskAnalysisView(portfolioanalysis.Result{CalculatedAt: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)})
 	if view.Positions == nil || view.Correlations == nil || view.Scenarios == nil || view.Warnings == nil {
 		t.Fatalf("risk view must expose empty collections instead of null: %+v", view)
+	}
+}
+
+func TestOrderViewsDoNotExposeConfirmationTokens(t *testing.T) {
+	preview, err := json.Marshal(toOrderPreviewView(trading.Preview{Instrument: portfolio.Instrument{Symbol: "TEST"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := json.Marshal(toOrderResultView(trading.Result{ConfirmationRequired: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(preview) + string(result)
+	if strings.Contains(strings.ToLower(combined), "token") {
+		t.Fatalf("order DTO exposed a confirmation token field: %s", combined)
 	}
 }
 

@@ -1,0 +1,14 @@
+version: 2
+schema_validity_denominator: all_planned_runs
+downstream_metric_denominator: schema_valid_runs
+invalid_response_handling: Invalid responses count against schema validity, remain stored, and are excluded from downstream metric means because those metrics are undefined without a validated structure.
+provider_failure_handling: Provider failures and timeouts remain stored, count against schema validity, and are not rerun.
+repeatability_denominator: all_pairs_of_schema_valid_repetitions_within_each_scenario_and_condition
+unsupported_claim_scope: Automated unsupported-claim rate covers structurally ungrounded portfolio observations only; semantic support remains manual.
+contradiction_scope: Automated contradiction rate covers reported numeric values that disagree with known evidence beyond the fixed contradiction tolerance; semantic contradictions remain manual.
+tolerances:
+  required_fact: Use the tolerance stored with each frozen required fact.
+  other_ratio: 0.005
+  other_money: 0.01
+  count: 0
+  contradiction: The greater of five times the applicable accuracy tolerance or five percent of the expected absolute value.

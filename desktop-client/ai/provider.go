@@ -47,8 +47,9 @@ type ChatRequest struct {
 
 // ChatResponse contains the next model message and provider metadata.
 type ChatResponse struct {
-	Message Message
-	Model   string
+	Message      Message
+	Model        string
+	FinishReason string
 }
 
 // Response is the completed prompt result returned to application services.

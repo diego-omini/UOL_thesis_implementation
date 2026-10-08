@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -52,7 +54,22 @@ type App struct {
 	historyAccountID string
 	historyImportMu  sync.Mutex
 	historyImports   map[string]historyImportState
+	operationMu      sync.Mutex
+	operations       map[string]operationState
+	operationID      uint64
 }
+
+type operationState struct {
+	id     uint64
+	cancel context.CancelFunc
+}
+
+const (
+	brokerOperationTimeout    = 45 * time.Second
+	counselorOperationTimeout = 2 * time.Minute
+	riskPositionLimit         = 50
+	riskRequestSpacing        = 100 * time.Millisecond
+)
 
 type historyImportState struct {
 	attemptedAt        time.Time
@@ -129,11 +146,13 @@ func NewApp() (*App, error) {
 		store:            store,
 		fundHoldings:     fundHoldingsService,
 		historyImports:   make(map[string]historyImportState),
+		operations:       make(map[string]operationState),
 	}, nil
 }
 
 // shutdown closes local persistence after Wails stops dispatching application calls.
 func (a *App) shutdown(_ context.Context) {
+	a.cancelOperations()
 	if a.store != nil {
 		_ = a.store.Close()
 	}
@@ -255,17 +274,22 @@ func (a *App) OpenIBKRLogin() error {
 
 // KeepSessionAlive refreshes an authenticated session and returns its resulting state.
 func (a *App) KeepSessionAlive() SessionStatusView {
-	return toSessionStatusView(a.sessionBroker.KeepAlive(a.context()))
+	ctx, cancel := context.WithTimeout(a.context(), brokerOperationTimeout)
+	defer cancel()
+	return toSessionStatusView(a.sessionBroker.KeepAlive(ctx))
 }
 
 // Logout ends the IBKR session and returns the authentication-required state.
 func (a *App) Logout() (SessionStatusView, error) {
+	a.cancelOperations()
 	a.trading.Reset()
 	a.setHistoryAccount("")
 	a.historyImportMu.Lock()
 	a.historyImports = make(map[string]historyImportState)
 	a.historyImportMu.Unlock()
-	if err := a.sessionBroker.Logout(a.context()); err != nil {
+	ctx, cancel := context.WithTimeout(a.context(), brokerOperationTimeout)
+	defer cancel()
+	if err := a.sessionBroker.Logout(ctx); err != nil {
 		return toSessionStatusView(a.checkSession()), err
 	}
 	return toSessionStatusView(broker.SessionStatus{
@@ -277,7 +301,9 @@ func (a *App) Logout() (SessionStatusView, error) {
 
 // GetPortfolioHistory refreshes and returns bounded portfolio history for the active account.
 func (a *App) GetPortfolioHistory(timeRange string) (PortfolioHistoryView, error) {
-	result, err := a.loadPortfolioHistory(timeRange)
+	ctx, finish := a.beginOperation("history", brokerOperationTimeout)
+	defer finish()
+	result, err := a.loadPortfolioHistory(ctx, timeRange)
 	if err != nil {
 		return PortfolioHistoryView{}, err
 	}
@@ -285,7 +311,7 @@ func (a *App) GetPortfolioHistory(timeRange string) (PortfolioHistoryView, error
 }
 
 // loadPortfolioHistory keeps the displayed history and counselor summary on one normalized path.
-func (a *App) loadPortfolioHistory(timeRange string) (portfoliohistory.Result, error) {
+func (a *App) loadPortfolioHistory(ctx context.Context, timeRange string) (portfoliohistory.Result, error) {
 	if a.store == nil {
 		return portfoliohistory.Result{}, fmt.Errorf("portfolio history is unavailable while generating bindings")
 	}
@@ -298,8 +324,8 @@ func (a *App) loadPortfolioHistory(timeRange string) (portfoliohistory.Result, e
 	if accountID == "" {
 		return portfoliohistory.Result{}, fmt.Errorf("load the current portfolio before requesting its history")
 	}
-	importState := a.syncPortfolioNAVHistory(accountID, to)
-	result, err := a.store.QueryPortfolioHistory(a.context(), accountID, portfoliohistory.Query{
+	importState := a.syncPortfolioNAVHistory(ctx, accountID, to)
+	result, err := a.store.QueryPortfolioHistory(ctx, accountID, portfoliohistory.Query{
 		From: from, To: to, MaxPoints: portfoliohistory.MaxPoints,
 	})
 	if err != nil {
@@ -313,11 +339,13 @@ func (a *App) loadPortfolioHistory(timeRange string) (portfoliohistory.Result, e
 
 // GetPortfolioHistorySummary explains the selected saved-history range without calculating investment returns.
 func (a *App) GetPortfolioHistorySummary(timeRange string) (AIResponseView, error) {
-	result, err := a.loadPortfolioHistory(timeRange)
+	ctx, finish := a.beginOperation("history", counselorOperationTimeout)
+	defer finish()
+	result, err := a.loadPortfolioHistory(ctx, timeRange)
 	if err != nil {
 		return AIResponseView{}, err
 	}
-	response, err := a.aiCounselor.PortfolioHistorySummary(a.context(), result)
+	response, err := a.aiCounselor.PortfolioHistorySummary(ctx, result)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio history summary failed: %w", err)
 	}
@@ -332,7 +360,9 @@ func (a *App) OpenPortfolioHistoryConnection() error {
 	if a.snapTradeHistory == nil || !a.snapTradeHistory.Configured() {
 		return fmt.Errorf("SnapTrade Personal API credentials are not configured")
 	}
-	connectionURL, err := a.snapTradeHistory.ConnectionPortalURL(a.context())
+	ctx, cancel := context.WithTimeout(a.context(), brokerOperationTimeout)
+	defer cancel()
+	connectionURL, err := a.snapTradeHistory.ConnectionPortalURL(ctx)
 	if err != nil {
 		return err
 	}
@@ -344,7 +374,7 @@ func (a *App) OpenPortfolioHistoryConnection() error {
 }
 
 // syncPortfolioNAVHistory respects IBKR pacing and keeps import failures separate from local history access.
-func (a *App) syncPortfolioNAVHistory(accountID string, now time.Time) historyImportState {
+func (a *App) syncPortfolioNAVHistory(ctx context.Context, accountID string, now time.Time) historyImportState {
 	const minimumImportInterval = 15 * time.Minute
 	const externalImportInterval = 6 * time.Hour
 
@@ -356,7 +386,7 @@ func (a *App) syncPortfolioNAVHistory(accountID string, now time.Time) historyIm
 	state := historyImportState{attemptedAt: now, externalConfigured: a.snapTradeHistory != nil && a.snapTradeHistory.Configured()}
 	a.historyImports[accountID] = state
 
-	recent, err := a.store.PortfolioNAVHistoryImportedRecently(a.context(), accountID, portfoliohistory.SourceIBKRPortfolioAnalyst, now.Add(-minimumImportInterval))
+	recent, err := a.store.PortfolioNAVHistoryImportedRecently(ctx, accountID, portfoliohistory.SourceIBKRPortfolioAnalyst, now.Add(-minimumImportInterval))
 	if err != nil {
 		state.warning = "Saved IBKR history could not be checked: " + safeHistoryError(err, accountID)
 		a.historyImports[accountID] = state
@@ -369,9 +399,9 @@ func (a *App) syncPortfolioNAVHistory(accountID string, now time.Time) historyIm
 	if a.portfolioHistory == nil {
 		ibkrWarning = "IBKR portfolio performance history is unavailable in this application configuration."
 	} else {
-		history, fetchErr := a.portfolioHistory.FetchPortfolioNAVHistory(a.context(), accountID, "1Y")
+		history, fetchErr := a.portfolioHistory.FetchPortfolioNAVHistory(ctx, accountID, "1Y")
 		if fetchErr == nil {
-			if saveErr := a.store.SavePortfolioNAVHistory(a.context(), history); saveErr == nil {
+			if saveErr := a.store.SavePortfolioNAVHistory(ctx, history); saveErr == nil {
 				a.historyImports[accountID] = state
 				return state
 			} else {
@@ -387,7 +417,7 @@ func (a *App) syncPortfolioNAVHistory(accountID string, now time.Time) historyIm
 		a.historyImports[accountID] = state
 		return state
 	}
-	externalRecent, err := a.store.PortfolioNAVHistoryImportedRecently(a.context(), accountID, portfoliohistory.SourceSnapTradeBalanceHistory, now.Add(-externalImportInterval))
+	externalRecent, err := a.store.PortfolioNAVHistoryImportedRecently(ctx, accountID, portfoliohistory.SourceSnapTradeBalanceHistory, now.Add(-externalImportInterval))
 	if err != nil {
 		state.warning = ibkrWarning + " Saved SnapTrade history could not be checked: " + safeHistoryError(err, accountID)
 		a.historyImports[accountID] = state
@@ -398,14 +428,14 @@ func (a *App) syncPortfolioNAVHistory(accountID string, now time.Time) historyIm
 		a.historyImports[accountID] = state
 		return state
 	}
-	externalHistory, err := a.snapTradeHistory.FetchPortfolioNAVHistory(a.context(), accountID)
+	externalHistory, err := a.snapTradeHistory.FetchPortfolioNAVHistory(ctx, accountID)
 	if err != nil {
 		state.connectionRequired = errors.Is(err, snaptradehistory.ErrConnectionRequired)
 		state.warning = ibkrWarning + " SnapTrade history could not be refreshed: " + safeHistoryError(err, accountID)
 		a.historyImports[accountID] = state
 		return state
 	}
-	if err := a.store.SavePortfolioNAVHistory(a.context(), externalHistory); err != nil {
+	if err := a.store.SavePortfolioNAVHistory(ctx, externalHistory); err != nil {
 		state.warning = ibkrWarning + " SnapTrade history could not be saved: " + safeHistoryError(err, accountID)
 		a.historyImports[accountID] = state
 		return state
@@ -417,7 +447,9 @@ func (a *App) syncPortfolioNAVHistory(accountID string, now time.Time) historyIm
 
 // GetPortfolio fetches the current broker portfolio and returns its deterministic analytics.
 func (a *App) GetPortfolio() (PortfolioView, error) {
-	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio()
+	ctx, finish := a.beginOperation("portfolio", brokerOperationTimeout)
+	defer finish()
+	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return PortfolioView{}, err
 	}
@@ -429,7 +461,9 @@ func (a *App) GetRecentAnalyses(limit int) ([]RecentAnalysisView, error) {
 	if a.store == nil {
 		return []RecentAnalysisView{}, nil
 	}
-	records, err := a.store.QueryRecentAnalyses(a.context(), limit)
+	ctx, cancel := context.WithTimeout(a.context(), 10*time.Second)
+	defer cancel()
+	records, err := a.store.QueryRecentAnalyses(ctx, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +472,9 @@ func (a *App) GetRecentAnalyses(limit int) ([]RecentAnalysisView, error) {
 
 // GetPortfolioRiskAnalysis calculates modeled risk from current exposures and broker price history.
 func (a *App) GetPortfolioRiskAnalysis() (PortfolioRiskAnalysisView, error) {
-	_, result, err := a.calculatePortfolioRisk()
+	ctx, finish := a.beginOperation("risk", counselorOperationTimeout)
+	defer finish()
+	_, result, err := a.calculatePortfolioRisk(ctx)
 	if err != nil {
 		return PortfolioRiskAnalysisView{}, err
 	}
@@ -447,11 +483,13 @@ func (a *App) GetPortfolioRiskAnalysis() (PortfolioRiskAnalysisView, error) {
 
 // GetPortfolioRiskCounsel calculates fresh risk and returns its grounded counselor explanation.
 func (a *App) GetPortfolioRiskCounsel() (PortfolioRiskCounselView, error) {
-	_, result, err := a.calculatePortfolioRisk()
+	ctx, finish := a.beginOperation("risk", counselorOperationTimeout)
+	defer finish()
+	_, result, err := a.calculatePortfolioRisk(ctx)
 	if err != nil {
 		return PortfolioRiskCounselView{}, err
 	}
-	response, err := a.aiCounselor.PortfolioRisk(a.context(), result)
+	response, err := a.aiCounselor.PortfolioRisk(ctx, result)
 	if err != nil {
 		return PortfolioRiskCounselView{}, fmt.Errorf("portfolio risk counseling failed: %w", err)
 	}
@@ -459,22 +497,48 @@ func (a *App) GetPortfolioRiskCounsel() (PortfolioRiskCounselView, error) {
 }
 
 // calculatePortfolioRisk keeps the displayed calculation and counselor input on one normalized path.
-func (a *App) calculatePortfolioRisk() (portfolio.Portfolio, portfolioanalysis.Result, error) {
-	snapshot, current, err := a.fetchPortfolio()
+func (a *App) calculatePortfolioRisk(ctx context.Context) (portfolio.Portfolio, portfolioanalysis.Result, error) {
+	snapshot, current, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return portfolio.Portfolio{}, portfolioanalysis.Result{}, err
 	}
+	positions := append([]portfolio.Position(nil), snapshot.Positions...)
+	weights := make(map[int64]float64, len(current.PositionWeights))
+	for _, item := range current.PositionWeights {
+		weights[item.ContractID] = math.Abs(item.MarketValue.Amount)
+	}
+	sort.SliceStable(positions, func(i, j int) bool {
+		return weights[positions[i].Instrument.ContractID] > weights[positions[j].Instrument.ContractID]
+	})
 	histories := make(map[int64]portfolio.StockHistory)
-	for _, position := range snapshot.Positions {
+	requested := 0
+	eligible := 0
+	for _, position := range positions {
 		if position.Instrument.ContractID <= 0 || !strings.EqualFold(position.Instrument.AssetClass, "STK") {
 			continue
 		}
-		history, historyErr := a.stockData.FetchStockHistory(a.context(), position.Instrument.ContractID, "1y")
+		eligible++
+		if requested >= riskPositionLimit {
+			continue
+		}
+		if requested > 0 {
+			select {
+			case <-ctx.Done():
+				return portfolio.Portfolio{}, portfolioanalysis.Result{}, ctx.Err()
+			case <-time.After(riskRequestSpacing):
+			}
+		}
+		requested++
+		history, historyErr := a.stockData.FetchStockHistory(ctx, position.Instrument.ContractID, "1y")
 		if historyErr == nil {
 			histories[position.Instrument.ContractID] = history
 		}
 	}
-	return snapshot, portfolioanalysis.Calculate(snapshot, current, histories, time.Now()), nil
+	result := portfolioanalysis.Calculate(snapshot, current, histories, time.Now())
+	if eligible > riskPositionLimit {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Risk history retrieval was limited to the %d largest eligible stock exposures to bound broker work and pacing.", riskPositionLimit))
+	}
+	return snapshot, result, nil
 }
 
 // SearchStocks returns matching stock contracts for the dashboard ticker search.
@@ -487,11 +551,13 @@ func (a *App) SearchStocks(query string) ([]InstrumentSearchResultView, error) {
 		return nil, fmt.Errorf("stock search query is too long")
 	}
 
-	status := a.checkSession()
+	ctx, finish := a.beginOperation("stock-search", brokerOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return nil, fmt.Errorf("stock search requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	results, err := a.instrumentSearch.SearchStocks(a.context(), query)
+	results, err := a.instrumentSearch.SearchStocks(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -503,11 +569,13 @@ func (a *App) GetStockSnapshot(contractID int64) (StockSnapshotView, error) {
 	if contractID <= 0 {
 		return StockSnapshotView{}, fmt.Errorf("a valid stock contract ID is required")
 	}
-	status := a.checkSession()
+	ctx, finish := a.beginOperation("stock-snapshot", brokerOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return StockSnapshotView{}, fmt.Errorf("stock data requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	snapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	snapshot, err := a.stockData.FetchStockSnapshot(ctx, contractID)
 	if err != nil {
 		return StockSnapshotView{}, err
 	}
@@ -519,11 +587,13 @@ func (a *App) GetStockHistory(contractID int64, timeRange string) (StockHistoryV
 	if contractID <= 0 {
 		return StockHistoryView{}, fmt.Errorf("a valid stock contract ID is required")
 	}
-	status := a.checkSession()
+	ctx, finish := a.beginOperation("stock-history", brokerOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return StockHistoryView{}, fmt.Errorf("stock history requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	history, err := a.stockData.FetchStockHistory(a.context(), contractID, timeRange)
+	history, err := a.stockData.FetchStockHistory(ctx, contractID, timeRange)
 	if err != nil {
 		return StockHistoryView{}, err
 	}
@@ -535,21 +605,23 @@ func (a *App) GetOrderAnalysis(contractID int64, side string, quantity float64) 
 	if contractID <= 0 {
 		return AIResponseView{}, fmt.Errorf("a valid stock contract ID is required")
 	}
-	status := a.checkSession()
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return AIResponseView{}, fmt.Errorf("order analysis requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	snapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	snapshot, err := a.stockData.FetchStockSnapshot(ctx, contractID)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("load stock data for order analysis: %w", err)
 	}
-	history, err := a.stockData.FetchStockHistory(a.context(), contractID, "1y")
+	history, err := a.stockData.FetchStockHistory(ctx, contractID, "1y")
 	if err != nil {
 		history = portfolio.StockHistory{
 			Range: "1y", UnavailableReason: fmt.Sprintf("IBKR price history was unavailable: %v", err),
 		}
 	}
-	portfolioSnapshot, _, err := a.fetchPortfolio()
+	portfolioSnapshot, _, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("load portfolio for order analysis: %w", err)
 	}
@@ -557,7 +629,7 @@ func (a *App) GetOrderAnalysis(contractID int64, side string, quantity float64) 
 	if err != nil {
 		return AIResponseView{}, err
 	}
-	response, err := a.aiCounselor.OrderAnalysis(a.context(), analysis)
+	response, err := a.aiCounselor.OrderAnalysis(ctx, analysis)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("order analysis failed: %w", err)
 	}
@@ -566,24 +638,28 @@ func (a *App) GetOrderAnalysis(contractID int64, side string, quantity float64) 
 
 // PreviewOrder validates a manual stock order and returns a short-lived confirmation preview.
 func (a *App) PreviewOrder(contractID int64, side string, quantity float64) (OrderPreviewView, error) {
-	status := a.checkSession()
+	ctx, finish := a.beginOperation("trading", brokerOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return OrderPreviewView{}, fmt.Errorf("order preview requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	preview, err := a.trading.PreviewOrder(a.context(), contractID, side, quantity)
+	preview, err := a.trading.PreviewOrder(ctx, contractID, side, quantity)
 	if err != nil {
 		return OrderPreviewView{}, err
 	}
 	return toOrderPreviewView(preview), nil
 }
 
-// ConfirmOrder submits the exact market order represented by a valid preview token.
-func (a *App) ConfirmOrder(previewToken string) (OrderResultView, error) {
-	status := a.checkSession()
+// ConfirmOrder submits the exact market order represented by the pending backend preview.
+func (a *App) ConfirmOrder() (OrderResultView, error) {
+	ctx, finish := a.beginOperation("trading", brokerOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return OrderResultView{}, fmt.Errorf("order submission requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	result, err := a.trading.ConfirmOrder(a.context(), strings.TrimSpace(previewToken))
+	result, err := a.trading.ConfirmOrder(ctx)
 	if err != nil {
 		return OrderResultView{}, err
 	}
@@ -591,16 +667,25 @@ func (a *App) ConfirmOrder(previewToken string) (OrderResultView, error) {
 }
 
 // RespondToOrderWarning forwards the user's explicit decision for an IBKR submission warning.
-func (a *App) RespondToOrderWarning(warningToken string, confirmed bool) (OrderResultView, error) {
-	status := a.checkSession()
+func (a *App) RespondToOrderWarning(confirmed bool) (OrderResultView, error) {
+	ctx, finish := a.beginOperation("trading", brokerOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return OrderResultView{}, fmt.Errorf("order warning response requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	result, err := a.trading.RespondToWarning(a.context(), strings.TrimSpace(warningToken), confirmed)
+	result, err := a.trading.RespondToWarning(ctx, confirmed)
 	if err != nil {
 		return OrderResultView{}, err
 	}
 	return toOrderResultView(result), nil
+}
+
+// CancelOrderDecision clears an unsubmitted preview or rejects an active broker warning.
+func (a *App) CancelOrderDecision() error {
+	ctx, finish := a.beginOperation("trading", brokerOperationTimeout)
+	defer finish()
+	return a.trading.CancelPending(ctx)
 }
 
 // GetStockNews researches recent material news for one broker-verified stock identity.
@@ -608,15 +693,17 @@ func (a *App) GetStockNews(contractID int64) (AIResponseView, error) {
 	if contractID <= 0 {
 		return AIResponseView{}, fmt.Errorf("a valid stock contract ID is required")
 	}
-	status := a.sessionBroker.CheckSession(a.context())
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return AIResponseView{}, fmt.Errorf("stock news requires an authenticated IBKR paper session: %s", status.Message)
 	}
-	snapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	snapshot, err := a.stockData.FetchStockSnapshot(ctx, contractID)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("stock news identity lookup failed: %w", err)
 	}
-	response, err := a.aiCounselor.StockNews(a.context(), snapshot.Instrument, time.Now())
+	response, err := a.aiCounselor.StockNews(ctx, snapshot.Instrument, time.Now())
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("stock news failed: %w", err)
 	}
@@ -628,7 +715,9 @@ func (a *App) GetPositionRiskAnalysis(contractID int64) (AIResponseView, error) 
 	if contractID <= 0 {
 		return AIResponseView{}, fmt.Errorf("a valid stock contract ID is required")
 	}
-	snapshot, current, err := a.fetchPortfolio()
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	snapshot, current, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, err
 	}
@@ -649,11 +738,11 @@ func (a *App) GetPositionRiskAnalysis(contractID int64) (AIResponseView, error) 
 	if selected == nil {
 		return AIResponseView{}, fmt.Errorf("position risk is available only for a current holding")
 	}
-	stockSnapshot, err := a.stockData.FetchStockSnapshot(a.context(), contractID)
+	stockSnapshot, err := a.stockData.FetchStockSnapshot(ctx, contractID)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("load current stock data for position risk: %w", err)
 	}
-	history, err := a.stockData.FetchStockHistory(a.context(), contractID, "1y")
+	history, err := a.stockData.FetchStockHistory(ctx, contractID, "1y")
 	if err != nil {
 		history = portfolio.StockHistory{Range: "1y", UnavailableReason: fmt.Sprintf("IBKR price history was unavailable: %v", err)}
 	}
@@ -661,7 +750,7 @@ func (a *App) GetPositionRiskAnalysis(contractID int64) (AIResponseView, error) 
 	if err != nil {
 		return AIResponseView{}, err
 	}
-	response, err := a.aiCounselor.PositionRisk(a.context(), result)
+	response, err := a.aiCounselor.PositionRisk(ctx, result)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("position risk analysis failed: %w", err)
 	}
@@ -670,11 +759,13 @@ func (a *App) GetPositionRiskAnalysis(contractID int64) (AIResponseView, error) 
 
 // GetPortfolioResume generates a read-only summary from the latest normalized positions.
 func (a *App) GetPortfolioResume() (AIResponseView, error) {
-	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio()
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, err
 	}
-	response, err := a.aiCounselor.PortfolioResume(a.context(), portfolioSnapshot, portfolioAnalytics)
+	response, err := a.aiCounselor.PortfolioResume(ctx, portfolioSnapshot, portfolioAnalytics)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio summary failed: %w", err)
 	}
@@ -683,11 +774,13 @@ func (a *App) GetPortfolioResume() (AIResponseView, error) {
 
 // GetCurrencyExposureAnalysis explains deterministic currency allocations and conversion provenance.
 func (a *App) GetCurrencyExposureAnalysis() (AIResponseView, error) {
-	snapshot, result, err := a.fetchPortfolio()
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	snapshot, result, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, err
 	}
-	response, err := a.aiCounselor.CurrencyExposure(a.context(), snapshot, result)
+	response, err := a.aiCounselor.CurrencyExposure(ctx, snapshot, result)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("currency exposure analysis failed: %w", err)
 	}
@@ -696,11 +789,13 @@ func (a *App) GetCurrencyExposureAnalysis() (AIResponseView, error) {
 
 // GetDiversificationAnalysis explains direct and effective look-through diversification.
 func (a *App) GetDiversificationAnalysis() (AIResponseView, error) {
-	snapshot, result, err := a.fetchPortfolio()
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	snapshot, result, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, err
 	}
-	response, err := a.aiCounselor.EffectiveDiversification(a.context(), snapshot, result)
+	response, err := a.aiCounselor.EffectiveDiversification(ctx, snapshot, result)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("diversification analysis failed: %w", err)
 	}
@@ -709,11 +804,13 @@ func (a *App) GetDiversificationAnalysis() (AIResponseView, error) {
 
 // GetPortfolioDataQualityAudit explains metric availability and source-coverage limitations.
 func (a *App) GetPortfolioDataQualityAudit() (AIResponseView, error) {
-	snapshot, result, err := a.fetchPortfolio()
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	snapshot, result, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, err
 	}
-	response, err := a.aiCounselor.PortfolioDataQuality(a.context(), snapshot, result)
+	response, err := a.aiCounselor.PortfolioDataQuality(ctx, snapshot, result)
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio data-quality audit failed: %w", err)
 	}
@@ -722,12 +819,14 @@ func (a *App) GetPortfolioDataQualityAudit() (AIResponseView, error) {
 
 // GetPortfolioNews researches the latest material news for every open position.
 func (a *App) GetPortfolioNews() (AIResponseView, error) {
-	portfolioSnapshot, _, err := a.fetchPortfolio()
+	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
+	defer finish()
+	portfolioSnapshot, _, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, err
 	}
 
-	response, err := a.aiCounselor.PortfolioNews(a.context(), portfolioSnapshot, time.Now())
+	response, err := a.aiCounselor.PortfolioNews(ctx, portfolioSnapshot, time.Now())
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio news failed: %w", err)
 	}
@@ -735,8 +834,7 @@ func (a *App) GetPortfolioNews() (AIResponseView, error) {
 }
 
 // fetchPortfolio coordinates broker retrieval, public fund data, deterministic analytics, and persistence.
-func (a *App) fetchPortfolio() (portfolio.Portfolio, analytics.Result, error) {
-	ctx := a.context()
+func (a *App) fetchPortfolio(ctx context.Context) (portfolio.Portfolio, analytics.Result, error) {
 	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("portfolio access requires an authenticated IBKR paper session: %s", status.Message)
@@ -797,6 +895,10 @@ func safeHistoryError(err error, accountID string) string {
 	if accountID = strings.TrimSpace(accountID); accountID != "" {
 		message = regexp.MustCompile(`(?i)`+regexp.QuoteMeta(accountID)).ReplaceAllString(message, "[redacted account]")
 	}
+	const maximumLength = 512
+	if runes := []rune(message); len(runes) > maximumLength {
+		message = string(runes[:maximumLength]) + "..."
+	}
 	return message
 }
 
@@ -807,9 +909,46 @@ func (a *App) context() context.Context {
 	return context.Background()
 }
 
+// beginOperation cancels superseded work in the same UI request family and applies an overall deadline.
+func (a *App) beginOperation(name string, timeout time.Duration) (context.Context, func()) {
+	a.operationMu.Lock()
+	if a.operations == nil {
+		a.operations = make(map[string]operationState)
+	}
+	if previous, ok := a.operations[name]; ok {
+		previous.cancel()
+	}
+	a.operationID++
+	id := a.operationID
+	ctx, cancel := context.WithTimeout(a.context(), timeout)
+	a.operations[name] = operationState{id: id, cancel: cancel}
+	a.operationMu.Unlock()
+	return ctx, func() {
+		cancel()
+		a.operationMu.Lock()
+		if current, ok := a.operations[name]; ok && current.id == id {
+			delete(a.operations, name)
+		}
+		a.operationMu.Unlock()
+	}
+}
+
+func (a *App) cancelOperations() {
+	a.operationMu.Lock()
+	operations := a.operations
+	a.operations = make(map[string]operationState)
+	a.operationMu.Unlock()
+	for _, operation := range operations {
+		operation.cancel()
+	}
+}
+
 func (a *App) checkSession() broker.SessionStatus {
-	status := a.sessionBroker.CheckSession(a.context())
+	ctx, cancel := context.WithTimeout(a.context(), brokerOperationTimeout)
+	defer cancel()
+	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() && a.trading != nil {
+		a.cancelOperations()
 		a.trading.Reset()
 	}
 	return status

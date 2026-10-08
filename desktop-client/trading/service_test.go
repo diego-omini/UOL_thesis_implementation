@@ -111,15 +111,15 @@ func TestPreviewOrderRejectsOversellBeforeBrokerPreview(t *testing.T) {
 func TestConfirmOrderConsumesPreviewOnce(t *testing.T) {
 	b := newTestBroker()
 	service := NewService(b, b, b)
-	preview, err := service.PreviewOrder(context.Background(), 42, "SELL", 2)
+	_, err := service.PreviewOrder(context.Background(), 42, "SELL", 2)
 	if err != nil {
 		t.Fatalf("PreviewOrder() error: %v", err)
 	}
-	result, err := service.ConfirmOrder(context.Background(), preview.Token)
+	result, err := service.ConfirmOrder(context.Background())
 	if err != nil || result.OrderID != "100" {
 		t.Fatalf("ConfirmOrder() = %#v, %v", result, err)
 	}
-	if _, err := service.ConfirmOrder(context.Background(), preview.Token); err == nil {
+	if _, err := service.ConfirmOrder(context.Background()); err == nil {
 		t.Fatal("second ConfirmOrder() succeeded, want consumed preview error")
 	}
 	if b.submitCalls != 1 {
@@ -132,32 +132,32 @@ func TestConfirmOrderRejectsExpiredPreview(t *testing.T) {
 	service := NewService(b, b, b)
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	service.now = func() time.Time { return now }
-	preview, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
+	_, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
 	if err != nil {
 		t.Fatalf("PreviewOrder() error: %v", err)
 	}
 	now = now.Add(previewLifetime)
-	if _, err := service.ConfirmOrder(context.Background(), preview.Token); err == nil {
+	if _, err := service.ConfirmOrder(context.Background()); err == nil {
 		t.Fatal("ConfirmOrder() succeeded with expired preview")
 	}
 }
 
-func TestBrokerWarningRequiresOpaqueExplicitReply(t *testing.T) {
+func TestBrokerWarningKeepsReplyIdentifierInBackend(t *testing.T) {
 	b := newTestBroker()
 	b.result = broker.OrderResult{ReplyID: "broker-secret-id", Messages: []string{"Confirm price warning"}}
 	service := NewService(b, b, b)
-	preview, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
+	_, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
 	if err != nil {
 		t.Fatalf("PreviewOrder() error: %v", err)
 	}
-	result, err := service.ConfirmOrder(context.Background(), preview.Token)
+	result, err := service.ConfirmOrder(context.Background())
 	if err != nil {
 		t.Fatalf("ConfirmOrder() error: %v", err)
 	}
-	if result.WarningToken == "" || result.WarningToken == "broker-secret-id" {
-		t.Fatalf("WarningToken = %q, want opaque application token", result.WarningToken)
+	if !result.ConfirmationRequired {
+		t.Fatal("broker warning did not require explicit confirmation")
 	}
-	final, err := service.RespondToWarning(context.Background(), result.WarningToken, true)
+	final, err := service.RespondToWarning(context.Background(), true)
 	if err != nil || final.OrderID != "200" || b.replyCalls != 1 {
 		t.Fatalf("RespondToWarning() = %#v, %v; calls=%d", final, err, b.replyCalls)
 	}
@@ -168,11 +168,11 @@ func TestSubmissionAuditFailurePreventsBrokerMutation(t *testing.T) {
 	recorder := &testAuditRecorder{failOnType: AuditSubmissionAttempted}
 	service := NewService(b, b, b)
 	service.SetAuditRecorder(recorder)
-	preview, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
+	_, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
 	if err != nil {
 		t.Fatalf("PreviewOrder returned an error: %v", err)
 	}
-	if _, err := service.ConfirmOrder(context.Background(), preview.Token); err == nil || !strings.Contains(err.Error(), "persist order submission audit") {
+	if _, err := service.ConfirmOrder(context.Background()); err == nil || !strings.Contains(err.Error(), "persist order submission audit") {
 		t.Fatalf("expected audit error, got %v", err)
 	}
 	if b.submitCalls != 0 {
@@ -180,16 +180,16 @@ func TestSubmissionAuditFailurePreventsBrokerMutation(t *testing.T) {
 	}
 }
 
-func TestOrderAuditRecordsTransitionsWithoutOpaqueTokens(t *testing.T) {
+func TestOrderAuditRecordsTransitionsWithoutConfirmationIdentifiers(t *testing.T) {
 	b := newTestBroker()
 	recorder := &testAuditRecorder{}
 	service := NewService(b, b, b)
 	service.SetAuditRecorder(recorder)
-	preview, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
+	_, err := service.PreviewOrder(context.Background(), 42, "SELL", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.ConfirmOrder(context.Background(), preview.Token)
+	result, err := service.ConfirmOrder(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,5 +201,22 @@ func TestOrderAuditRecordsTransitionsWithoutOpaqueTokens(t *testing.T) {
 		if recorder.events[index].EventType != eventType {
 			t.Fatalf("event %d = %q, want %q", index, recorder.events[index].EventType, eventType)
 		}
+	}
+}
+
+func TestCancelPendingClearsPreviewWithoutBrokerMutation(t *testing.T) {
+	b := newTestBroker()
+	service := NewService(b, b, b)
+	if _, err := service.PreviewOrder(context.Background(), 42, "SELL", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.CancelPending(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ConfirmOrder(context.Background()); err == nil {
+		t.Fatal("cancelled preview remained confirmable")
+	}
+	if b.submitCalls != 0 || b.replyCalls != 0 {
+		t.Fatalf("cancelled preview mutated broker state: submit=%d reply=%d", b.submitCalls, b.replyCalls)
 	}
 }

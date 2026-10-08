@@ -1,7 +1,7 @@
-// Command evaluate runs the fixed portfolio-prompt comparison and stores one JSON result bundle.
+// Command evaluate runs the frozen version 2 portfolio-prompt comparison.
 package main
 
-// This file wires the embedded evaluation suite to the local Ollama provider.
+// This file enforces environment and schema gates before storing a pilot or final version 2 bundle.
 
 import (
 	"context"
@@ -37,50 +37,71 @@ func run() error {
 	baseURL := flag.String("base-url", defaultBaseURL, "Ollama API base URL")
 	output := flag.String("output", filepath.Join("evaluation", "results"), "result bundle directory")
 	databasePath := flag.String("database", filepath.Join(dataDirectory, "portfolio-tracker.db"), "SQLite database path")
-	expectedDigest := flag.String("expected-model-digest", "", "optional exact Ollama model digest required before execution")
-	timeout := flag.Duration("timeout", 45*time.Minute, "maximum duration for the complete suite")
+	runKind := flag.String("run-kind", "pilot", "recorded run kind: pilot or final")
+	preflightOnly := flag.Bool("preflight-only", false, "verify environment, model digest, and schema acceptance without starting an experiment")
+	expectedDigest := flag.String("expected-model-digest", "", "must match the digest frozen in the version 2 manifest when supplied")
+	timeout := flag.Duration("timeout", 2*time.Hour, "maximum duration for the complete suite")
 	flag.Parse()
 
-	manifest, conditions, scenarios, rubric, err := evaluation.LoadSuite()
+	suite, err := evaluation.LoadV2Suite()
 	if err != nil {
 		return err
+	}
+	kind := strings.ToLower(strings.TrimSpace(*runKind))
+	if kind != "pilot" && kind != "final" {
+		return fmt.Errorf("run-kind must be pilot or final")
+	}
+	if supplied := strings.TrimSpace(*expectedDigest); supplied != "" && !strings.EqualFold(supplied, suite.Manifest.ExpectedModelDigest) {
+		return fmt.Errorf("supplied model digest differs from the frozen version 2 digest")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	environment, err := evaluation.InspectEnvironment(ctx, *baseURL, manifest.Model)
+	environment, err := evaluation.InspectEnvironment(ctx, *baseURL, suite.Manifest.Model)
 	if err != nil {
 		return err
 	}
-	expected := strings.TrimSpace(*expectedDigest)
-	if expected == "" {
-		expected = strings.TrimSpace(manifest.ExpectedModelDigest)
+	if !strings.EqualFold(suite.Manifest.ExpectedModelDigest, environment.ModelDigest) {
+		return fmt.Errorf("model digest mismatch: expected %s, found %s", suite.Manifest.ExpectedModelDigest, environment.ModelDigest)
 	}
-	if expected != "" && !strings.EqualFold(expected, environment.ModelDigest) {
-		return fmt.Errorf("model digest mismatch: expected %s, found %s", expected, environment.ModelDigest)
+	provider := ai.NewOllamaProvider(*baseURL, suite.Manifest.Model)
+	runner := evaluation.NewV2Runner(provider)
+	preflight, err := runner.VerifySchemaAcceptance(ctx, suite)
+	if err != nil {
+		return err
 	}
-	manifest.ExpectedModelDigest = expected
+	fmt.Printf("Schema preflight passed with %s on Ollama %s.\n", environment.Model, environment.OllamaVersion)
+	if *preflightOnly {
+		return nil
+	}
+
+	bundle := runner.Run(ctx, suite, environment, kind, preflight)
+	paths, err := evaluation.SaveV2Bundle(*output, bundle)
+	if err != nil {
+		return err
+	}
 	store, err := persistence.Open(*databasePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("bundle stored at %s but database open failed: %w", paths.BundlePath, err)
 	}
 	defer store.Close()
-
-	provider := ai.NewOllamaProvider(*baseURL, manifest.Model)
-	bundle := evaluation.NewRunner(provider).Run(ctx, manifest, conditions, scenarios, rubric, environment)
-	path, err := evaluation.SaveBundle(*output, bundle)
-	if err != nil {
-		return err
+	if err := store.SaveV2EvaluationBundle(context.WithoutCancel(ctx), bundle); err != nil {
+		return fmt.Errorf("bundle stored at %s but database storage failed: %w", paths.BundlePath, err)
 	}
-	if err := store.SaveEvaluationBundle(context.WithoutCancel(ctx), bundle); err != nil {
-		return err
-	}
-	fmt.Printf("Stored %d evaluation runs in %s\n", len(bundle.Runs), path)
+	fmt.Printf("Stored %d version 2 %s runs in %s\n", len(bundle.Runs), kind, paths.BundlePath)
+	fmt.Printf("Blind review: %s\nBlind mapping: %s\n", paths.ReviewPath, paths.MapPath)
 	for _, summary := range bundle.Summaries {
-		fmt.Printf(
-			"%s: schema %.2f, coverage %.2f, accuracy %.2f, grounding %.2f, repeatability %.2f\n",
-			summary.ConditionID, summary.SchemaValidity, summary.RequiredFactCoverage,
-			summary.NumericalAccuracy, summary.Grounding, summary.Repeatability,
+		fmt.Printf("%s: schema %.3f (%d/%d), coverage %s, accuracy %s, grounding %s, repeatability %s\n",
+			summary.ConditionID, summary.SchemaValidity, summary.SchemaValidRuns, summary.PlannedRuns,
+			formatMetric(summary.RequiredFactCoverage), formatMetric(summary.NumericalAccuracy),
+			formatMetric(summary.Grounding), formatMetric(summary.Repeatability),
 		)
 	}
 	return nil
+}
+
+func formatMetric(metric evaluation.MetricMean) string {
+	if metric.Value == nil {
+		return fmt.Sprintf("undefined (n=%d)", metric.Denominator)
+	}
+	return fmt.Sprintf("%.3f (n=%d)", *metric.Value, metric.Denominator)
 }

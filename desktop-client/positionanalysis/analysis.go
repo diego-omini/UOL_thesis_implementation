@@ -110,11 +110,19 @@ type closeObservation struct {
 }
 
 func validCloses(points []portfolio.StockHistoryPoint) []closeObservation {
-	values := make([]closeObservation, 0, len(points))
+	byDate := make(map[string]closeObservation, len(points))
 	for _, point := range points {
 		if !point.Time.IsZero() && point.Close > 0 && !math.IsNaN(point.Close) && !math.IsInf(point.Close, 0) {
-			values = append(values, closeObservation{Time: point.Time, Close: point.Close})
+			key := point.Time.UTC().Format("2006-01-02")
+			current, exists := byDate[key]
+			if !exists || !point.Time.Before(current.Time) {
+				byDate[key] = closeObservation{Time: point.Time.UTC(), Close: point.Close}
+			}
 		}
+	}
+	values := make([]closeObservation, 0, len(byDate))
+	for _, value := range byDate {
+		values = append(values, value)
 	}
 	sort.Slice(values, func(i, j int) bool { return values[i].Time.Before(values[j].Time) })
 	return values

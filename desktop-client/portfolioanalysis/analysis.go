@@ -174,14 +174,26 @@ func Calculate(snapshot portfolio.Portfolio, current analytics.Result, histories
 }
 
 func dailyReturns(points []portfolio.StockHistoryPoint) (map[string]float64, map[string]time.Time) {
-	valid := append([]portfolio.StockHistoryPoint(nil), points...)
+	byDate := make(map[string]portfolio.StockHistoryPoint, len(points))
+	for _, point := range points {
+		if point.Time.IsZero() || point.Close <= 0 || math.IsNaN(point.Close) || math.IsInf(point.Close, 0) {
+			continue
+		}
+		key := point.Time.UTC().Format("2006-01-02")
+		current, exists := byDate[key]
+		if !exists || !point.Time.Before(current.Time) {
+			point.Time = point.Time.UTC()
+			byDate[key] = point
+		}
+	}
+	valid := make([]portfolio.StockHistoryPoint, 0, len(byDate))
+	for _, point := range byDate {
+		valid = append(valid, point)
+	}
 	sort.Slice(valid, func(i, j int) bool { return valid[i].Time.Before(valid[j].Time) })
 	returns := map[string]float64{}
 	dates := map[string]time.Time{}
 	for i := 1; i < len(valid); i++ {
-		if valid[i-1].Close <= 0 || valid[i].Close <= 0 || valid[i].Time.IsZero() {
-			continue
-		}
 		key := valid[i].Time.UTC().Format("2006-01-02")
 		returns[key] = valid[i].Close/valid[i-1].Close - 1
 		dates[key] = valid[i].Time.UTC()

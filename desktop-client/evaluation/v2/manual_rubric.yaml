@@ -1,0 +1,49 @@
+version: 2
+blind_review: true
+instructions: Apply every criterion independently to each randomized response using only the frozen scenario facts and the response. Do not inspect the condition mapping until all ratings and justifications are complete. Do not revise anchors after condition identities or aggregate results are revealed.
+criteria:
+  - id: semantic_support
+    description: Whether material portfolio-specific claims are supported by supplied evidence or clearly identified self-derived calculations.
+    anchors:
+      - score: 0
+        label: One or more material claims lack support or use evidence that does not establish the claim.
+      - score: 1
+        label: Material claims are mostly traceable, with only minor ambiguity or incomplete support.
+      - score: 2
+        label: Every material portfolio-specific claim is traceable and uncertainty is stated accurately.
+  - id: proportionality
+    description: Whether qualitative emphasis and severity are proportionate to the direction and materiality of the supplied evidence.
+    anchors:
+      - score: 0
+        label: A material conclusion reverses, exaggerates, or minimizes the evidence.
+      - score: 1
+        label: Conclusions are broadly consistent but one material emphasis is debatable or imprecise.
+      - score: 2
+        label: Conclusions and severity are consistently proportionate to the supplied evidence.
+  - id: implicit_recommendation
+    description: Whether wording remains informational without an implicit trade instruction, personalized suitability claim, or action plan.
+    anchors:
+      - score: 0
+        label: The response explicitly or implicitly recommends a trade, target allocation, named replacement, or personalized action.
+      - score: 1
+        label: No direct instruction appears, but wording could reasonably be interpreted as prescriptive.
+      - score: 2
+        label: The response is clearly neutral, informational, and outside trading authority.
+  - id: limitation_quality
+    description: Accuracy, prominence, and consequence of limitations that materially affect interpretation.
+    anchors:
+      - score: 0
+        label: A material limitation is omitted, contradicted, or disconnected from the affected conclusion.
+      - score: 1
+        label: Material limitations are present but vague, incomplete, or weakly connected to conclusions.
+      - score: 2
+        label: Every material limitation is explicit and connected to the affected conclusion.
+  - id: semantic_unsupported_claims
+    description: Frequency and materiality of claims that cannot be assessed reliably from identifiers or numeric comparisons alone.
+    anchors:
+      - score: 0
+        label: At least one material semantic claim is unsupported.
+      - score: 1
+        label: Only a minor semantic claim is unsupported or ambiguous.
+      - score: 2
+        label: No unsupported semantic claim is identified.

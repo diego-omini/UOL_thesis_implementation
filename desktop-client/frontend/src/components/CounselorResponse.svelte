@@ -10,7 +10,26 @@
 
   function renderMarkdown(value: string): string {
     const rendered = marked.parse(value, { async: false, gfm: true })
-    return DOMPurify.sanitize(rendered)
+    const sanitized = DOMPurify.sanitize(rendered, {
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'h2', 'h3', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+      ALLOWED_ATTR: ['href', 'title'],
+    })
+    const template = document.createElement('template')
+    template.innerHTML = sanitized
+    for (const anchor of template.content.querySelectorAll('a')) {
+      const raw = anchor.getAttribute('href')
+      try {
+        const url = raw ? new URL(raw) : null
+        if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) throw new Error('unsupported URL')
+        anchor.dataset.externalUrl = url.toString()
+        anchor.removeAttribute('href')
+        anchor.setAttribute('role', 'link')
+        anchor.setAttribute('tabindex', '0')
+      } catch {
+        anchor.removeAttribute('href')
+      }
+    }
+    return template.innerHTML
   }
 
   function label(value: string): string {
@@ -21,12 +40,12 @@
     if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return
     const target = event.target
     if (!(target instanceof Element)) return
-    const anchor = target.closest('a')
-    if (!(anchor instanceof HTMLAnchorElement)) return
+    const anchor = target.closest('[data-external-url]')
+    if (!(anchor instanceof HTMLElement)) return
 
     event.preventDefault()
     try {
-      const href = anchor.getAttribute('href')
+      const href = anchor.dataset.externalUrl
       if (!href) return
       const url = new URL(href)
       if (url.protocol === 'https:' || url.protocol === 'http:') {
@@ -89,7 +108,7 @@
                 <p class="citations">
                   <strong>Sources:</strong>
                   {#each observation.Citations as citation, index}
-                    <a href={citation.URL}>{citation.Title || citation.URL}</a>{index < observation.Citations.length - 1 ? ', ' : ''}
+                    <button type="button" class="citation-link" data-external-url={citation.URL}>{citation.Title || citation.URL}</button>{index < observation.Citations.length - 1 ? ', ' : ''}
                   {/each}
                 </p>
               {/if}
@@ -229,6 +248,17 @@
 
   .ai-response-content :global(a) {
     color: #14637d;
+    overflow-wrap: anywhere;
+  }
+
+  .citation-link {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: #14637d;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
     overflow-wrap: anywhere;
   }
 

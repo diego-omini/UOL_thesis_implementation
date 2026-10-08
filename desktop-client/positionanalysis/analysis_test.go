@@ -44,3 +44,20 @@ func TestCalculateRejectsMismatchedPosition(t *testing.T) {
 		t.Fatal("Calculate() accepted a mismatched holding")
 	}
 }
+
+func TestCalculateUsesLatestCloseForDuplicateDate(t *testing.T) {
+	start := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	instrument := portfolio.Instrument{ContractID: 42, AssetClass: "STK"}
+	history := portfolio.StockHistory{Points: []portfolio.StockHistoryPoint{
+		{Time: start, Close: 10},
+		{Time: start.Add(time.Hour), Close: 20},
+		{Time: start.AddDate(0, 0, 1), Close: 30},
+	}}
+	result, err := Calculate(portfolio.StockSnapshot{Instrument: instrument}, history, portfolio.Position{Instrument: instrument}, analytics.Ratio{}, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.HistoryObservations != 2 || math.Abs(result.TotalReturn.Value-.5) > 1e-9 {
+		t.Fatalf("duplicate date distorted history metrics: %+v", result)
+	}
+}

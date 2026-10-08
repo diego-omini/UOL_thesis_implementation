@@ -23,7 +23,7 @@ func main() {
 	}
 
 	err = wails.Run(&options.App{
-		Title:  "AI-assisted portfolio tracker",
+		Title:  "IBKR Paper Portfolio Counselor",
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{

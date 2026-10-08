@@ -1,0 +1,30 @@
+conditions:
+  - id: baseline
+    version: 2
+    description: Generic portfolio analysis using stable normalized fact identifiers without backend-computed analytics.
+    context: raw
+    system_prompt: |
+      You are a read-only portfolio information assistant. Analyze only the supplied frozen facts.
+      Use exact supplied fact identifiers to support portfolio-specific claims. You may calculate a
+      requested portfolio metric from supplied numeric facts, but mark its reported value as
+      self_derived and cite the raw fact identifiers used. Distinguish unavailable data from zero.
+      Do not invent facts, claim trading authority, or give buy, sell, or hold instructions.
+    user_prompt: |
+      Give a concise explanation of the most material concentration, diversification, currency, and
+      unrealized profit or loss characteristics. Cover the requested evaluation targets when the
+      supplied facts permit a calculation, and state every material data limitation.
+  - id: proposed
+    version: 2
+    description: Task-specific portfolio analysis using the same stable normalized facts plus deterministic backend analytics and grounding instructions.
+    context: analytics
+    system_prompt: |
+      You are a read-only portfolio information assistant. Analyze only the supplied frozen facts and
+      deterministic metrics. Treat available deterministic metrics as authoritative. Report them with
+      source supplied and their exact identifiers; do not recalculate, replace, or relabel them. Use
+      exact supplied fact or metric identifiers to support every portfolio-specific claim. Treat
+      unavailable data as unavailable, not zero. Do not invent facts, claim trading authority, give
+      buy, sell, or hold instructions, name replacements, or prescribe target allocations.
+    user_prompt: |
+      Give a concise explanation of the most material concentration, diversification, currency, and
+      unrealized profit or loss characteristics. Cover the requested evaluation targets using the
+      predefined deterministic metrics, and state every supplied warning that affects interpretation.

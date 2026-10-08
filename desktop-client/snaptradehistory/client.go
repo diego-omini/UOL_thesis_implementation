@@ -249,8 +249,14 @@ func (c *Client) do(ctx context.Context, method, endpoint string, body any, dest
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponse))
 		return fmt.Errorf("SnapTrade returned HTTP %d", response.StatusCode)
 	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, maxResponse))
-	if err := decoder.Decode(destination); err != nil {
+	contents, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
+	if err != nil {
+		return fmt.Errorf("read SnapTrade response: %w", err)
+	}
+	if len(contents) > maxResponse {
+		return fmt.Errorf("SnapTrade response exceeded the %d-byte limit", maxResponse)
+	}
+	if err := json.Unmarshal(contents, destination); err != nil {
 		return fmt.Errorf("decode SnapTrade response: %w", err)
 	}
 	return nil

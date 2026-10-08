@@ -1,6 +1,6 @@
 <script lang="ts">
   // StockDetailView.svelte owns market-data loading and presentation for one selected stock.
-  import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+  import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte'
   import { GetStockHistory, GetStockSnapshot } from '../../wailsjs/go/main/App.js'
   import StockCounselor from '../components/StockCounselor.svelte'
   import TradingPanel from '../components/TradingPanel.svelte'
@@ -37,6 +37,7 @@
   let selectedRange: StockHistoryRange = '24h'
   let lifecycleSequence = 0
   let historySequence = 0
+  let heading: HTMLHeadingElement
   const ranges: Array<{ value: StockHistoryRange; label: string }> = [
     { value: '24h', label: '24 hours' },
     { value: '1m', label: '1 month' },
@@ -47,6 +48,7 @@
   $: chartAverageCost = averageCostForChart(position, snapshot)
   onMount(() => {
     const lifecycle = lifecycleSequence
+    void tick().then(() => heading?.focus())
     void loadSnapshot(lifecycle)
     void loadHistory(selectedRange, lifecycle)
   })
@@ -116,7 +118,7 @@
   <div class="stock-heading">
     <div>
       <span class="eyebrow">Stock</span>
-      <h2>{snapshot?.Instrument.Symbol || stock.Symbol}</h2>
+      <h2 bind:this={heading} tabindex="-1">{snapshot?.Instrument.Symbol || stock.Symbol}</h2>
       <p>{snapshot?.Instrument.Name || stock.Name || 'Company name unavailable'}</p>
     </div>
     <div class="stock-heading-actions">

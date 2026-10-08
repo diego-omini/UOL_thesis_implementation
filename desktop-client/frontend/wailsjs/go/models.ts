@@ -580,7 +580,6 @@ export namespace main {
 	    }
 	}
 	export class OrderPreviewView {
-	    Token: string;
 	    ExpiresAt: string;
 	    Instrument: InstrumentView;
 	    Side: string;
@@ -600,7 +599,6 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Token = source["Token"];
 	        this.ExpiresAt = source["ExpiresAt"];
 	        this.Instrument = this.convertValues(source["Instrument"], InstrumentView);
 	        this.Side = source["Side"];
@@ -636,7 +634,7 @@ export namespace main {
 	export class OrderResultView {
 	    OrderID: string;
 	    Status: string;
-	    WarningToken: string;
+	    ConfirmationRequired: boolean;
 	    WarningMessages: string[];
 	
 	    static createFrom(source: any = {}) {
@@ -647,7 +645,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.OrderID = source["OrderID"];
 	        this.Status = source["Status"];
-	        this.WarningToken = source["WarningToken"];
+	        this.ConfirmationRequired = source["ConfirmationRequired"];
 	        this.WarningMessages = source["WarningMessages"];
 	    }
 	}

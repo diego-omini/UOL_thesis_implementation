@@ -23,7 +23,7 @@ const (
 	AuditWarningRejected            = "warning_rejected"
 )
 
-// AuditEvent records an order transition without retaining preview or broker-warning tokens.
+// AuditEvent records an order transition without retaining broker confirmation identifiers.
 type AuditEvent struct {
 	OccurredAt        time.Time
 	EventType         string
@@ -42,7 +42,7 @@ type AuditEvent struct {
 	ErrorText         string
 }
 
-// AuditRecorder persists manual-order events without receiving submission capabilities or opaque tokens.
+// AuditRecorder persists manual-order events without receiving submission capabilities or broker reply identifiers.
 type AuditRecorder interface {
 	RecordOrderAudit(ctx context.Context, event AuditEvent) error
 }

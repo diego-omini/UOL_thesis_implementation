@@ -77,6 +77,18 @@ func TestOllamaProviderReportsAPIErrors(t *testing.T) {
 	}
 }
 
+func TestOllamaProviderBoundsProviderErrorText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(writer).Encode(map[string]string{"error": strings.Repeat("x", 2000)})
+	}))
+	defer server.Close()
+	_, err := NewOllamaProvider(server.URL, "test").Chat(context.Background(), ChatRequest{})
+	if err == nil || len(err.Error()) > 600 || !strings.HasSuffix(err.Error(), "...") {
+		t.Fatalf("provider error was not bounded: length=%d error=%v", len(err.Error()), err)
+	}
+}
+
 func TestOllamaProviderReportsUnreachableServer(t *testing.T) {
 	provider := NewOllamaProvider("http://127.0.0.1:1/api", "test-model")
 	_, err := provider.Chat(context.Background(), ChatRequest{})

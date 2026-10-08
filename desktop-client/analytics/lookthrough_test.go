@@ -64,6 +64,20 @@ func TestCalculateWithFundHoldingsKeepsPartialAndUnavailableExposureVisible(t *t
 	}
 }
 
+func TestCalculateWithFundHoldingsLeavesZeroExposureWeightsUnavailable(t *testing.T) {
+	snapshot := portfolio.Portfolio{
+		AccountSummary: portfolio.AccountSummary{NetLiquidation: availableMoney(0, "USD")},
+		Positions: []portfolio.Position{{
+			Instrument:  portfolio.Instrument{ContractID: 1, Symbol: "ZERO", AssetClass: "STK"},
+			MarketPrice: availableMoney(0, "USD"), MarketValue: availableMoney(0, "USD"), UnrealizedPnL: availableMoney(0, "USD"),
+		}},
+	}
+	result := CalculateWithFundHoldings(snapshot, nil, time.Now())
+	if len(result.EffectiveSecurityExposure) != 0 || len(result.EffectiveSectorAllocation) != 0 {
+		t.Fatalf("zero exposure produced effective weights: %+v", result)
+	}
+}
+
 func completeFund(instrument portfolio.Instrument, holdings []portfolio.FundHolding) portfolio.FundHoldings {
 	return portfolio.FundHoldings{
 		Fund: instrument, Available: true, Complete: true, SourceURL: "https://issuer.example/holdings.csv",
