@@ -132,22 +132,23 @@ type citationAcceptor interface {
 
 // counselorJSONSchema constrains local providers while Go remains the authoritative validator.
 func counselorJSONSchema() map[string]any {
-	stringArray := map[string]any{"type": "array", "items": map[string]any{"type": "string"}}
+	nonEmptyString := map[string]any{"type": "string", "minLength": 1}
+	stringArray := map[string]any{"type": "array", "items": nonEmptyString}
 	citation := strictObject(map[string]any{
 		"title": map[string]any{"type": "string"},
-		"url":   map[string]any{"type": "string"},
+		"url":   nonEmptyString,
 	}, []string{"title", "url"})
 	reportedValue := strictObject(map[string]any{
-		"fact_id": map[string]any{"type": "string"},
+		"fact_id": nonEmptyString,
 		"value":   map[string]any{"type": "number"},
-		"unit":    map[string]any{"type": "string"},
+		"unit":    nonEmptyString,
 	}, []string{"fact_id", "value", "unit"})
 	observation := strictObject(map[string]any{
 		"category": map[string]any{"type": "string", "enum": []string{
 			string(CategorySuppliedFact), string(CategoryDeterministicDerivedFact), string(CategorySourcedExternalEvidence),
 			string(CategoryInterpretation), string(CategoryGeneralInformation), string(CategoryUnavailableInformation),
 		}},
-		"statement":           map[string]any{"type": "string", "maxLength": maxObservationStatementCharacters},
+		"statement":           map[string]any{"type": "string", "minLength": 1, "maxLength": maxObservationStatementCharacters},
 		"supporting_fact_ids": stringArray,
 		"reported_values":     map[string]any{"type": "array", "items": reportedValue},
 		"severity": map[string]any{"type": "string", "enum": []string{
@@ -157,16 +158,16 @@ func counselorJSONSchema() map[string]any {
 			string(ConfidenceLow), string(ConfidenceModerate), string(ConfidenceHigh),
 		}},
 		"limitations": stringArray,
-		"explanation": map[string]any{"type": "string"},
+		"explanation": nonEmptyString,
 		"citations":   map[string]any{"type": "array", "items": citation},
 	}, []string{"category", "statement", "supporting_fact_ids", "reported_values", "severity", "confidence", "limitations", "explanation", "citations"})
 	limitation := strictObject(map[string]any{
-		"statement": map[string]any{"type": "string"},
+		"statement": nonEmptyString,
 		"fact_ids":  stringArray,
 	}, []string{"statement", "fact_ids"})
 	return strictObject(map[string]any{
 		"schema_version": map[string]any{"type": "integer", "const": counselorSchemaVersion},
-		"summary":        map[string]any{"type": "string"},
+		"summary":        nonEmptyString,
 		"observations":   map[string]any{"type": "array", "items": observation, "minItems": 1},
 		"limitations":    map[string]any{"type": "array", "items": limitation, "minItems": 1},
 	}, []string{"schema_version", "summary", "observations", "limitations"})
@@ -246,12 +247,8 @@ func normalizeCounselorResponse(response *CounselorResponse, facts []CounselorFa
 	for _, fact := range facts {
 		factByID[fact.ID] = fact
 	}
-	observations := make([]CounselorObservation, 0, len(response.Observations))
 	for index := range response.Observations {
 		observation := &response.Observations[index]
-		if strings.TrimSpace(observation.Statement) == "" || strings.TrimSpace(observation.Explanation) == "" {
-			continue
-		}
 		observation.SupportingFactIDs = normalizeFactIDs(observation.SupportingFactIDs)
 		reportedValues := make([]ReportedValue, 0, len(observation.ReportedValues))
 		for valueIndex := range observation.ReportedValues {
@@ -274,9 +271,7 @@ func normalizeCounselorResponse(response *CounselorResponse, facts []CounselorFa
 		}
 		observation.ReportedValues = reportedValues
 		normalizeObservationCategory(observation, factByID, tools)
-		observations = append(observations, *observation)
 	}
-	response.Observations = observations
 	coveredLimitations := map[string]bool{}
 	for index := range response.Limitations {
 		factIDs := normalizeFactIDs(response.Limitations[index].FactIDs)

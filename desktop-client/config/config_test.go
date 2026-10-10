@@ -2,7 +2,10 @@ package config
 
 // config_test.go verifies configuration defaults, environment overrides, and validation failures.
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestLoadDefaults(t *testing.T) {
 	t.Setenv(ibkrBaseURLEnv, "")
@@ -15,7 +18,7 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.IBKR.SkipTLSVerifyLocal {
 		t.Fatal("local TLS verification should be disabled by default")
 	}
-	if cfg.AI.Provider != "ollama" || cfg.AI.BaseURL != "http://localhost:11434/api" || cfg.AI.Model != "llama3.2" {
+	if cfg.AI.Provider != "ollama" || cfg.AI.BaseURL != "http://localhost:11434/api" || cfg.AI.Model != "qwen3:14b" {
 		t.Fatalf("unexpected default AI configuration: %+v", cfg.AI)
 	}
 	if cfg.AI.SearchBaseURL != "https://ollama.com/api" || cfg.AI.SearchMaxResults != 5 || len(cfg.AI.SearchAllowedDomains) == 0 {
@@ -65,6 +68,25 @@ func TestLoadEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadOpenAIProviderDefaults(t *testing.T) {
+	t.Setenv(ibkrGatewayDirEnv, "")
+	t.Setenv(aiProviderEnv, "openai")
+	t.Setenv(openAIAPIKeyEnv, "test-key")
+	osUnsetForTest(t, aiBaseURLEnv)
+	osUnsetForTest(t, aiModelEnv)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load returned an error: %v", err)
+	}
+	if cfg.AI.Provider != "openai" || cfg.AI.BaseURL != "https://api.openai.com/v1" || cfg.AI.Model != "gpt-6-luna" {
+		t.Fatalf("unexpected OpenAI defaults: %+v", cfg.AI)
+	}
+	if cfg.AI.APIKey != "test-key" {
+		t.Fatal("OpenAI API key was not loaded")
+	}
+}
+
 func TestLoadRejectsInvalidValues(t *testing.T) {
 	t.Run("base URL", func(t *testing.T) {
 		t.Setenv(ibkrBaseURLEnv, "localhost:5000")
@@ -102,6 +124,27 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		}
 	})
 
+	t.Run("OpenAI API key", func(t *testing.T) {
+		t.Setenv(ibkrGatewayDirEnv, "")
+		t.Setenv(aiProviderEnv, "openai")
+		t.Setenv(openAIAPIKeyEnv, "")
+		osUnsetForTest(t, aiBaseURLEnv)
+		osUnsetForTest(t, aiModelEnv)
+
+		if _, err := Load(); err == nil {
+			t.Fatal("expected an empty OpenAI API key to return an error")
+		}
+	})
+
+	t.Run("AI provider", func(t *testing.T) {
+		t.Setenv(ibkrGatewayDirEnv, "")
+		t.Setenv(aiProviderEnv, "unsupported")
+
+		if _, err := Load(); err == nil {
+			t.Fatal("expected an unsupported AI provider to return an error")
+		}
+	})
+
 	t.Run("search result limit", func(t *testing.T) {
 		t.Setenv(ibkrGatewayDirEnv, "")
 		t.Setenv(aiSearchMaxResultsEnv, "11")
@@ -118,6 +161,21 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 
 		if _, err := Load(); err == nil {
 			t.Fatal("expected partial SnapTrade credentials to return an error")
+		}
+	})
+}
+
+func osUnsetForTest(t *testing.T, name string) {
+	t.Helper()
+	value, exists := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatalf("unset %s: %v", name, err)
+	}
+	t.Cleanup(func() {
+		if exists {
+			_ = os.Setenv(name, value)
+		} else {
+			_ = os.Unsetenv(name)
 		}
 	})
 }

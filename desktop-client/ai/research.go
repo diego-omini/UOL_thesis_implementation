@@ -249,6 +249,19 @@ func instrumentKey(instrument PublicInstrument) string {
 	return strings.ToUpper(strings.TrimSpace(instrument.Ticker)) + "\x00" + strings.ToLower(strings.TrimSpace(instrument.Name))
 }
 
+// requiredInstrumentSearchCalls builds privacy-safe mandatory searches from public identities and fixed topics.
+func requiredInstrumentSearchCalls(instruments []PublicInstrument, topics ...string) []ToolCall {
+	calls := make([]ToolCall, 0, len(instruments)*len(topics))
+	for _, instrument := range instruments {
+		for _, topic := range topics {
+			calls = append(calls, ToolCall{Name: "search_instrument", Arguments: map[string]any{
+				"name": strings.TrimSpace(instrument.Name), "ticker": strings.TrimSpace(instrument.Ticker), "topic": topic,
+			}})
+		}
+	}
+	return calls
+}
+
 func normalizeDomain(value string) string {
 	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(value)), ".")
 }

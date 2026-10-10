@@ -32,8 +32,12 @@ func (c *Counselor) PortfolioNews(
 	parameters := map[string]any{"facts": facts}
 
 	var tools []Tool
+	instruments := toPublicInstruments(snapshot.Positions)
 	if c.researchFactory != nil {
-		tools = c.researchFactory.ForInstruments(toPublicInstruments(snapshot.Positions))
+		tools = c.researchFactory.ForInstruments(instruments)
 	}
-	return c.executor.ExecuteCounselor(ctx, PortfolioNewsPromptAlias, parameters, tools, facts)
+	return c.executor.ExecuteCounselorWithRequiredTools(
+		ctx, PortfolioNewsPromptAlias, parameters, tools, facts,
+		requiredInstrumentSearchCalls(instruments, "latest_news"),
+	)
 }

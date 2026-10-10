@@ -211,7 +211,7 @@ func TestExecutorRecordsPromptExecution(t *testing.T) {
 func TestExecutorRunsDeclaredToolLoop(t *testing.T) {
 	provider := &recordingProvider{responses: []ChatResponse{
 		{
-			Message: Message{Role: "assistant", ToolCalls: []ToolCall{{Name: "lookup", Arguments: map[string]any{"query": "test"}}}},
+			Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_123", Name: "lookup", Arguments: map[string]any{"query": "test"}}}},
 			Model:   "test-model",
 		},
 		{Message: Message{Role: "assistant", Content: "grounded answer"}, Model: "test-model"},
@@ -235,8 +235,44 @@ func TestExecutorRunsDeclaredToolLoop(t *testing.T) {
 	if response.Text != "grounded answer" || tool.arguments["query"] != "test" {
 		t.Fatalf("tool loop did not complete: response=%+v arguments=%+v", response, tool.arguments)
 	}
-	if len(provider.requests) != 2 || provider.requests[1].Messages[len(provider.requests[1].Messages)-1].Content != "tool evidence" {
+	if len(provider.requests) != 2 {
 		t.Fatalf("tool result was not returned to the provider: %+v", provider.requests)
+	}
+	toolResult := provider.requests[1].Messages[len(provider.requests[1].Messages)-1]
+	if toolResult.Content != "tool evidence" || toolResult.ToolCallID != "call_123" {
+		t.Fatalf("unexpected tool result: %+v", toolResult)
+	}
+}
+
+func TestExecutorRunsRequiredToolsBeforeStructuredSynthesis(t *testing.T) {
+	provider := &recordingProvider{responses: []ChatResponse{{
+		Message: Message{Role: "assistant", Content: validStructuredResponse}, Model: "test-model",
+	}}}
+	tool := &testTool{}
+	definition := PromptDefinition{
+		ID: "required_tool_test", Version: 1, Description: "Required tool test.",
+		SystemTemplate: "System", UserTemplate: "User", Tools: []string{"lookup"},
+		ToolSettings: ToolSettings{MaxRounds: 2, MaxCalls: 2},
+		Response:     ResponseSettings{Format: "json", Schema: CounselorResponseSchema, MaxCharacters: 5000, MaxTokens: 100},
+	}
+	catalog := &Catalog{
+		prompts: map[promptKey]PromptDefinition{{id: definition.ID, version: definition.Version}: definition},
+		aliases: map[string]PromptReference{"required_tool_test": {ID: definition.ID, Version: definition.Version}},
+	}
+
+	response, err := NewExecutor(catalog, provider).ExecuteCounselorWithRequiredTools(
+		context.Background(), "required_tool_test", nil, []Tool{tool}, nil,
+		[]ToolCall{{Name: "lookup", Arguments: map[string]any{"query": "test"}}},
+	)
+	if err != nil {
+		t.Fatalf("ExecuteCounselorWithRequiredTools returned an error: %v", err)
+	}
+	if response.Structured == nil || tool.arguments["query"] != "test" || len(provider.requests) != 1 {
+		t.Fatalf("required research did not complete: response=%+v arguments=%+v requests=%+v", response, tool.arguments, provider.requests)
+	}
+	request := provider.requests[0]
+	if len(request.Tools) != 0 || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "tool evidence") {
+		t.Fatalf("structured synthesis was not tool-free or lacked evidence: %+v", request)
 	}
 }
 

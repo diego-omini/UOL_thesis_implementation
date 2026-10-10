@@ -20,7 +20,7 @@ func TestOllamaProviderChat(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		if payload.Model != "test-model" || payload.Stream || len(payload.Messages) != 2 || len(payload.Tools) != 1 || payload.Format["type"] != "object" {
+		if payload.Model != "test-model" || payload.Stream || payload.Think || len(payload.Messages) != 2 || len(payload.Tools) != 1 || payload.Format["type"] != "object" {
 			t.Fatalf("unexpected request: %+v", payload)
 		}
 		if payload.Options.Temperature != 0.2 || payload.Options.MaxTokens != 400 || payload.Options.Seed != 42 || payload.Options.ContextSize != 8192 {

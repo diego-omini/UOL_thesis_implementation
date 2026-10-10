@@ -18,14 +18,16 @@ type GenerationSettings struct {
 
 // Message is one provider-neutral conversation item.
 type Message struct {
-	Role      string
-	Content   string
-	ToolName  string
-	ToolCalls []ToolCall
+	Role       string
+	Content    string
+	ToolName   string
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall
 }
 
 // ToolCall is a model request to execute one declared application tool.
 type ToolCall struct {
+	ID        string `json:"id,omitempty"`
 	Name      string
 	Arguments map[string]any
 }

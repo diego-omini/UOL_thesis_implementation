@@ -47,6 +47,19 @@ func (unusedResearchProvider) Fetch(context.Context, string) (FetchedSource, err
 	return FetchedSource{}, nil
 }
 
+type queryRecordingResearchProvider struct {
+	queries []string
+}
+
+func (p *queryRecordingResearchProvider) Search(_ context.Context, query string, _ int) ([]SearchResult, error) {
+	p.queries = append(p.queries, query)
+	return nil, nil
+}
+
+func (*queryRecordingResearchProvider) Fetch(context.Context, string) (FetchedSource, error) {
+	return FetchedSource{}, nil
+}
+
 func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 	catalog, err := NewCatalog()
 	if err != nil {
@@ -249,7 +262,8 @@ func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	provider := &recordingProvider{responses: []ChatResponse{{
 		Message: Message{Role: "assistant", Content: validPortfolioNews}, Model: "test-model",
 	}}}
-	researchTools := NewResearchToolsFactory(unusedResearchProvider{}, []string{"sec.gov"}, 5)
+	researchProvider := &queryRecordingResearchProvider{}
+	researchTools := NewResearchToolsFactory(researchProvider, []string{"sec.gov"}, 5)
 	counselor := NewCounselor(NewExecutor(catalog, provider), researchTools)
 	researchTime := time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC)
 	snapshot := portfolio.Portfolio{Positions: []portfolio.Position{
@@ -278,8 +292,11 @@ func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	if strings.Contains(userPrompt, "quantity") || strings.Contains(userPrompt, "portfolio weight") {
 		t.Fatalf("portfolio-news prompt contains private position data:\n%s", userPrompt)
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 4200 || len(request.Tools) != 2 || request.ResponseSchema == nil {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 4200 || len(request.Tools) != 0 || request.ResponseSchema == nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "mandatory research") {
 		t.Fatalf("unexpected portfolio-news request: %+v", request)
+	}
+	if len(researchProvider.queries) != 2 {
+		t.Fatalf("portfolio-news searches = %d, want one per position: %+v", len(researchProvider.queries), researchProvider.queries)
 	}
 }
 
@@ -302,7 +319,8 @@ func TestStockNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	provider := &recordingProvider{responses: []ChatResponse{{
 		Message: Message{Role: "assistant", Content: validStockNews}, Model: "test-model",
 	}}}
-	researchTools := NewResearchToolsFactory(unusedResearchProvider{}, []string{"sec.gov"}, 5)
+	researchProvider := &queryRecordingResearchProvider{}
+	researchTools := NewResearchToolsFactory(researchProvider, []string{"sec.gov"}, 5)
 	counselor := NewCounselor(NewExecutor(catalog, provider), researchTools)
 	researchTime := time.Date(2026, time.September, 25, 12, 0, 0, 0, time.UTC)
 	instrument := portfolio.Instrument{Symbol: "AAPL", Name: "Apple Inc.", AssetClass: "STK"}
@@ -321,8 +339,11 @@ func TestStockNewsExecutesActiveCatalogPrompt(t *testing.T) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, userPrompt)
 		}
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || len(request.Tools) != 2 || request.ResponseSchema == nil {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || len(request.Tools) != 0 || request.ResponseSchema == nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "regulatory_filings") {
 		t.Fatalf("unexpected stock-news request: %+v", request)
+	}
+	if len(researchProvider.queries) != 3 {
+		t.Fatalf("stock-news searches = %d, want three fixed topics: %+v", len(researchProvider.queries), researchProvider.queries)
 	}
 }
 
@@ -345,7 +366,8 @@ func TestOrderAnalysisExecutesActiveCatalogPrompt(t *testing.T) {
 	provider := &recordingProvider{responses: []ChatResponse{{
 		Message: Message{Role: "assistant", Content: validOrderAnalysis}, Model: "test-model",
 	}}}
-	counselor := NewCounselor(NewExecutor(catalog, provider), NewResearchToolsFactory(unusedResearchProvider{}, []string{"sec.gov"}, 5))
+	researchProvider := &queryRecordingResearchProvider{}
+	counselor := NewCounselor(NewExecutor(catalog, provider), NewResearchToolsFactory(researchProvider, []string{"sec.gov"}, 5))
 	result := stockanalysis.Result{
 		CalculatedAt: time.Date(2026, time.September, 26, 12, 0, 0, 0, time.UTC),
 		Instrument:   portfolio.Instrument{Symbol: "NESN", Name: "Nestlé S.A.", Exchange: "SIX", Currency: "CHF"},
@@ -384,7 +406,10 @@ func TestOrderAnalysisExecutesActiveCatalogPrompt(t *testing.T) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, request.Messages[1].Content)
 		}
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 3600 || len(request.Tools) != 2 || request.ResponseSchema == nil {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 3600 || len(request.Tools) != 0 || request.ResponseSchema == nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "financial_condition") {
 		t.Fatalf("unexpected order-analysis request: %+v", request)
+	}
+	if len(researchProvider.queries) != 5 {
+		t.Fatalf("order-analysis searches = %d, want five fixed topics: %+v", len(researchProvider.queries), researchProvider.queries)
 	}
 }

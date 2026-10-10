@@ -49,6 +49,8 @@ test('counselor failures distinguish session, research, provider, market data, b
   assert.equal(classifyCounselorError('requires an authenticated IBKR paper session').kind, 'session')
   assert.equal(classifyCounselorError('research API key is missing').kind, 'research')
   assert.equal(classifyCounselorError('Ollama connection refused').kind, 'provider')
+  assert.equal(classifyCounselorError('context deadline exceeded').kind, 'provider')
+  assert.equal(classifyCounselorError("OpenAI request failed: Unsupported parameter: 'temperature'").kind, 'provider')
   assert.equal(classifyCounselorError('insufficient common return observations').kind, 'market_data')
   assert.equal(classifyCounselorError('IBKR portfolio request failed').kind, 'broker')
   assert.equal(classifyCounselorError('provider could not produce a valid final response').kind, 'validation')

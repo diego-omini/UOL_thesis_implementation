@@ -27,6 +27,7 @@ type ollamaChatRequest struct {
 	Messages []ollamaMessage        `json:"messages"`
 	Tools    []ollamaToolDefinition `json:"tools,omitempty"`
 	Format   map[string]any         `json:"format,omitempty"`
+	Think    bool                   `json:"think"`
 	Stream   bool                   `json:"stream"`
 	Options  ollamaOptions          `json:"options"`
 }
@@ -77,7 +78,7 @@ func NewOllamaProvider(baseURL, model string) *OllamaProvider {
 	return &OllamaProvider{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		model:   model,
-		client:  &http.Client{Timeout: 2 * time.Minute},
+		client:  &http.Client{Timeout: 12 * time.Minute},
 	}
 }
 
@@ -88,6 +89,7 @@ func (p *OllamaProvider) Chat(ctx context.Context, request ChatRequest) (ChatRes
 		Messages: toOllamaMessages(request.Messages),
 		Tools:    toOllamaTools(request.Tools),
 		Format:   request.ResponseSchema,
+		Think:    false,
 		Stream:   false,
 		Options: ollamaOptions{
 			Temperature: request.Settings.Temperature,

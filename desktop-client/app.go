@@ -66,7 +66,7 @@ type operationState struct {
 
 const (
 	brokerOperationTimeout    = 45 * time.Second
-	counselorOperationTimeout = 2 * time.Minute
+	counselorOperationTimeout = 15 * time.Minute
 	riskPositionLimit         = 50
 	riskRequestSpacing        = 100 * time.Millisecond
 )
@@ -98,9 +98,19 @@ func NewApp() (*App, error) {
 	snapTradeHistory := snaptradehistory.NewClient(cfg.SnapTrade.ClientID, cfg.SnapTrade.ConsumerKey, nil)
 
 	var aiProvider ai.Provider
+	var researchProvider ai.ResearchProvider
 	switch cfg.AI.Provider {
 	case "ollama":
 		aiProvider = ai.NewOllamaProvider(cfg.AI.BaseURL, cfg.AI.Model)
+		researchProvider = ai.NewOllamaResearchProvider(cfg.AI.SearchBaseURL, cfg.AI.SearchAPIKey)
+	case "openai":
+		aiProvider = ai.NewOpenAIProvider(cfg.AI.BaseURL, cfg.AI.APIKey, cfg.AI.Model)
+		researchProvider = ai.NewOpenAIResearchProvider(
+			cfg.AI.BaseURL,
+			cfg.AI.APIKey,
+			cfg.AI.Model,
+			cfg.AI.SearchAllowedDomains,
+		)
 	default:
 		return nil, fmt.Errorf("unsupported AI provider %q", cfg.AI.Provider)
 	}
@@ -109,7 +119,6 @@ func NewApp() (*App, error) {
 		return nil, fmt.Errorf("failed to load prompt catalog: %w", err)
 	}
 	promptExecutor := ai.NewExecutor(promptCatalog, aiProvider)
-	researchProvider := ai.NewOllamaResearchProvider(cfg.AI.SearchBaseURL, cfg.AI.SearchAPIKey)
 	researchTools := ai.NewResearchToolsFactory(
 		researchProvider,
 		cfg.AI.SearchAllowedDomains,

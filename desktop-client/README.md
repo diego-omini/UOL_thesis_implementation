@@ -1,6 +1,6 @@
 # Desktop client
 
-IBKR Paper Portfolio Counselor starts and monitors a local Interactive Brokers Client Portal Gateway, verifies that its authenticated session is for paper trading, retrieves the account summary and all open positions, calculates portfolio allocation and concentration metrics, and stores sanitized snapshots for locally tracked analytics. Its local Ollama integration provides read-only portfolio and stock counseling. A selected stock can be analyzed and traded manually through a validated IBKR what-if preview and explicit confirmation flow.
+IBKR Paper Portfolio Counselor starts and monitors a local Interactive Brokers Client Portal Gateway, verifies that its authenticated session is for paper trading, retrieves the account summary and all open positions, calculates portfolio allocation and concentration metrics, and stores sanitized snapshots for locally tracked analytics. Its configurable Ollama or OpenAI integration provides read-only portfolio and stock counseling. A selected stock can be analyzed and traded manually through a validated IBKR what-if preview and explicit confirmation flow.
 
 Only paper trading is within scope. The current version uses the first account in the order returned by `/portfolio/accounts`; it does not provide an account selector.
 
@@ -12,16 +12,17 @@ Only paper trading is within scope. The current version uses the first account i
 - Java supported by the installed Client Portal Gateway
 - Interactive Brokers Client Portal Gateway
 - An Interactive Brokers paper account
-- Ollama with the configured model available locally
-- An Ollama account and API key when web research is enabled
+- Ollama with the configured model available locally when `AI_PROVIDER=ollama`
+- An OpenAI API project and secret key when `AI_PROVIDER=openai`
+- An Ollama account and API key for web research when `AI_PROVIDER=ollama`
 - Optional: a free SnapTrade Personal API key for estimated account-value history when IBKR PortfolioAnalyst is unavailable
 
 The gateway can be downloaded from the [Interactive Brokers API page](https://www.interactivebrokers.com/en/trading/ib-api.php).
 
-The default AI model is `llama3.2`. Install Ollama and make that model available before using the counselor prompts:
+The default AI model is `qwen3:14b`. Install Ollama and make that model available before using the counselor prompts:
 
 ```powershell
-ollama pull llama3.2
+ollama pull qwen3:14b
 ```
 
 ## Configure IBKR authentication
@@ -53,11 +54,12 @@ The default settings target the local Client Portal Gateway and Ollama services:
 | `IBKR_BASE_URL` | `https://localhost:5000/v1/api` | Client Portal Gateway API base URL |
 | `IBKR_SKIP_TLS_VERIFY` | `true` | Accept the gateway's local self-signed certificate |
 | `IBKR_GATEWAY_DIR` | Stored first-run selection | Extracted `clientportal.gw` directory |
-| `AI_PROVIDER` | `ollama` | AI provider selected by the application composition layer |
-| `AI_BASE_URL` | `http://localhost:11434/api` | Base URL for the Ollama API |
-| `AI_MODEL` | `llama3.2` | Ollama model used for counselor prompts |
-| `OLLAMA_API_KEY` | Empty | API key for Ollama-hosted web search and page fetch |
-| `AI_SEARCH_BASE_URL` | `https://ollama.com/api` | Ollama web-research API base URL |
+| `AI_PROVIDER` | `ollama` | Counselor provider: `ollama` or `openai` |
+| `AI_BASE_URL` | Provider default | Ollama defaults to `http://localhost:11434/api`; OpenAI defaults to `https://api.openai.com/v1` |
+| `AI_MODEL` | Provider default | Ollama defaults to `qwen3:14b`; OpenAI defaults to `gpt-6-luna` |
+| `OPENAI_API_KEY` | Empty | OpenAI project secret key; required only when `AI_PROVIDER=openai` |
+| `OLLAMA_API_KEY` | Empty | Ollama-hosted web-search key; used only when `AI_PROVIDER=ollama` |
+| `AI_SEARCH_BASE_URL` | `https://ollama.com/api` | Ollama web-research base URL; used only when `AI_PROVIDER=ollama` |
 | `AI_SEARCH_ALLOWED_DOMAINS` | Curated default list | Comma-separated reliable domains accepted from search results |
 | `AI_SEARCH_MAX_RESULTS` | `5` | Maximum results requested per instrument search, from 1 to 10 |
 | `SNAPTRADE_CLIENT_ID` | Empty | Optional Personal API key client ID for read-only portfolio-history backfill |
@@ -71,7 +73,7 @@ $env:IBKR_SKIP_TLS_VERIFY = "true"
 $env:IBKR_GATEWAY_DIR = "C:\path\to\clientportal.gw"
 $env:AI_PROVIDER = "ollama"
 $env:AI_BASE_URL = "http://localhost:11434/api"
-$env:AI_MODEL = "llama3.2"
+$env:AI_MODEL = "qwen3:14b"
 $env:OLLAMA_API_KEY = "your-ollama-api-key"
 $env:AI_SEARCH_ALLOWED_DOMAINS = "sec.gov,reuters.com,example-issuer.com"
 $env:SNAPTRADE_CLIENT_ID = "your-personal-client-id"
@@ -79,11 +81,22 @@ $env:SNAPTRADE_CONSUMER_KEY = "your-personal-consumer-key"
 wails dev
 ```
 
+To use OpenAI instead, set the provider and secret key in the same PowerShell session. `AI_MODEL` is optional and can select another model available to the OpenAI project:
+
+```powershell
+$env:AI_PROVIDER = "openai"
+$env:OPENAI_API_KEY = "your-openai-api-key"
+$env:AI_MODEL = "gpt-6-luna"
+wails dev
+```
+
+Return to local inference by setting `AI_PROVIDER` to `ollama` and restarting the application. Remove any provider-specific `AI_BASE_URL` or `AI_MODEL` override when relying on the defaults.
+
 TLS verification should only be disabled for the locally hosted gateway. Do not use this setting for a remote endpoint.
 
-The AI provider is isolated behind an application-owned interface. The first implementation supports `ollama`; selecting another provider requires a corresponding adapter. Immutable prompt versions are stored below `ai/prompts`, while `ai/prompts/catalog.yaml` selects the active version for each alias. Each prompt declares its parameters, tools, system and user templates, output contract, temperature, token ceiling, and maximum response length.
+The AI provider is isolated behind application-owned inference and research interfaces. Ollama uses its local chat API and authenticated hosted search; OpenAI uses the Responses API for structured inference and its hosted `web_search` tool. Mandatory stock-news, portfolio-news, and order-analysis searches are executed by the backend before one tool-free structured synthesis request, so the model cannot skip required research or expose private context in a search. OpenAI research requests are separate from counselor inference and contain only the backend-approved public instrument identity, fixed research topic, and configured source domains. OpenAI-returned URLs are accepted only when the hosted tool reports them in its consulted-source list. Provider keys remain in the Go backend environment and are not stored by the application. Ollama thinking output is disabled for counselor requests so the configured output budget is reserved for the validated answer. Sampling temperature is omitted for OpenAI reasoning-model families because their default reasoning modes do not accept it; the catalog value continues to apply to Ollama and compatible OpenAI models. Immutable prompt versions are stored below `ai/prompts`, while `ai/prompts/catalog.yaml` selects the active version for each alias. Each prompt declares its parameters, tools, system and user templates, output contract, temperature, token ceiling, and maximum response length.
 
-Active counselor prompts receive application-owned facts with stable identifiers. Deterministic numeric facts include an explicit unit and validation tolerance; the model may interpret or repeat these values but does not replace their calculation. Reported money accepts the greater of 0.01 currency units or one part per million, percentages accept 0.05 percentage points, HHI accepts 0.0005, share quantities accept `1e-9`, and integer counts must match exactly. Ollama receives a JSON schema for constrained output. Go normalizes representation-only mistakes such as rendered fact-line wrappers and known percent-unit aliases, removes nonnumeric entries from numeric fields, and restores required limitations from backend facts before checking fact references, numeric agreement, trading-authority claims, and citations. Citation URLs must have been accepted by the prompt's isolated research session. An invalid response receives one tool-free repair attempt and is rejected if the repaired result is still invalid. The frontend renders the validated observations, explanations, confidence, limitations, supporting fact IDs, values, and citations; Markdown explanations remain sanitized and external links open in the system browser.
+Active counselor prompts receive application-owned facts with stable identifiers. Deterministic numeric facts include an explicit unit and validation tolerance; the model may interpret or repeat these values but does not replace their calculation. Reported money accepts the greater of 0.01 currency units or one part per million, percentages accept 0.05 percentage points, HHI accepts 0.0005, share quantities accept `1e-9`, and integer counts must match exactly. Both inference adapters receive the same JSON schema for constrained output. Go normalizes representation-only mistakes such as rendered fact-line wrappers and known percent-unit aliases, removes nonnumeric entries from numeric fields, and restores required limitations from backend facts before checking fact references, numeric agreement, trading-authority claims, and citations. Citation URLs must have been accepted by the prompt's isolated research session. An invalid response receives one tool-free repair attempt and is rejected if the repaired result is still invalid. The frontend renders the validated observations, explanations, confidence, limitations, supporting fact IDs, values, and citations; Markdown explanations remain sanitized and external links open in the system browser.
 
 The interface presents ten defined workflows in an analysis library grouped by portfolio overview, risk, diversification, history, research, stock analysis, and proposed-order analysis. Each action states its required data, whether it uses external research, and why it is unavailable. Portfolio and stock analysis areas keep one active result at a time and reject late responses after a newer analysis, navigation, input change, session change, or component destruction. The backend also cancels superseded work in each request family, applies an overall deadline, and cancels active work when the broker session is lost or logged out.
 
@@ -92,10 +105,10 @@ The catalog currently exposes these workflows:
 | Alias | Active version | Interface location | Backend-normalized context | Research tools |
 | --- | --- | --- | --- | --- |
 | `portfolio_resume` | 3 | Portfolio overview | Current positions, direct and effective allocations, concentration, provenance, and warnings | Instrument search and accepted-source fetch |
-| `portfolio_news` | 2 | Analysis library research | Ordered broker-resolved public identities and research timestamp | Instrument search and accepted-source fetch |
+| `portfolio_news` | 2 | Analysis library research | Ordered broker-resolved public identities and research timestamp | Required backend instrument search before synthesis |
 | `portfolio_risk` | 1 | Modeled portfolio risk | Current-weight modeled metrics, contributions, correlations, scenarios, periods, coverage, and warnings | None |
-| `stock_news` | 2 | Stock analysis | One broker-resolved public stock identity and research timestamp | Instrument search and accepted-source fetch |
-| `order_analysis` | 2 | Manual order panel | Proposed side and quantity, deterministic order impact, market metrics, timestamps, and warnings | Instrument search and accepted-source fetch |
+| `stock_news` | 2 | Stock analysis | One broker-resolved public stock identity and research timestamp | Three required backend instrument searches before synthesis |
+| `order_analysis` | 2 | Manual order panel | Proposed side and quantity, deterministic order impact, market metrics, timestamps, and warnings | Five required backend instrument searches before synthesis |
 | `currency_exposure` | 1 | Diversification | Instrument-currency allocation, broker exchange rates, source timestamps, and missing-conversion warnings | None |
 | `effective_diversification` | 1 | Diversification | Direct concentration, bounded effective securities, effective sectors, fund coverage, issuer provenance, and warnings | None |
 | `portfolio_history_summary` | 1 | Historical data | Selected range, source-separated observations, endpoints, absolute changes, coverage, and reduction warnings | None |
@@ -120,7 +133,7 @@ The dashboard can also calculate modeled portfolio risk on demand. It requests o
 
 These figures model the current portfolio as if it had been rebalanced to the current weights each day. They are not realized account performance or historical attribution. Positions without sufficient common history remain excluded with an explicit warning, and foreign-security returns omit historical exchange-rate movement because the broker history response does not include a matching FX series.
 
-After a successful calculation, **Explain with counselor** refreshes the same normalized inputs and sends only application-owned risk facts to the local model. The dedicated prompt explains coverage, risk drivers, correlations, contributions, scenarios, and tradeoffs without recalculating the values. It has no research tools, cannot place orders, must retain every calculation limitation, and returns the same validated structured response used by the other counselor workflows.
+After a successful calculation, **Explain with counselor** refreshes the same normalized inputs and sends only application-owned risk facts to the configured model. The dedicated prompt explains coverage, risk drivers, correlations, contributions, scenarios, and tradeoffs without recalculating the values. It has no research tools, cannot place orders, must retain every calculation limitation, and returns the same validated structured response used by the other counselor workflows.
 
 The current source registry supports the iShares Core S&P 500 ETF (`IVV`) through its official full-holdings CSV. Both ticker and issuer fund name must match before the application downloads the fixed issuer URL. Downloads are cached in memory for six hours with an explicit expiry. Other funds are reported as unsupported until a reliable structured issuer adapter and exact identity mapping are added; the application does not scrape issuer pages, derive holdings from search snippets, or ask the model to supply holdings.
 
@@ -210,5 +223,5 @@ The command records the Ollama version and installed model digest, writes a time
 - Manual trading is limited to whole-share DAY stock market orders. Limit orders, fractional shares, open-order management, and execution history are not implemented. Order audit records describe application transitions and broker acknowledgements, not authoritative fills.
 - A connection loss after a submission request reaches IBKR but before its acknowledgement returns is inherently ambiguous. The application records the submission attempt and does not retry automatically; confirm the order in an IBKR interface before taking another action.
 - Current-position risk uses one year of broker price history and current holding values. It does not provide fundamental business-risk analysis, forecasts, or a reconstruction of the position through time.
-- Web research requires `OLLAMA_API_KEY`; without it, the counselor continues with deterministic portfolio context and reports the research limitation.
+- OpenAI web research uses `OPENAI_API_KEY`. Ollama web research requires `OLLAMA_API_KEY`; without the selected provider's credential or service access, the counselor continues with deterministic portfolio context and reports the research limitation.
 - Deterministic look-through currently supports only the exact `IVV` issuer identity. All other ETFs and funds retain explicit unknown exposure until a source-specific structured adapter is implemented.

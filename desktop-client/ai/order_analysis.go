@@ -54,7 +54,13 @@ func (c *Counselor) OrderAnalysis(ctx context.Context, result stockanalysis.Resu
 	if c.researchFactory != nil {
 		tools = c.researchFactory.ForInstruments([]PublicInstrument{publicInstrument})
 	}
-	return c.executor.ExecuteCounselor(ctx, OrderAnalysisPromptAlias, parameters, tools, facts)
+	return c.executor.ExecuteCounselorWithRequiredTools(
+		ctx, OrderAnalysisPromptAlias, parameters, tools, facts,
+		requiredInstrumentSearchCalls(
+			[]PublicInstrument{publicInstrument},
+			"valuation", "financial_condition", "company_risk", "regulatory_filings", "latest_news",
+		),
+	)
 }
 
 func toPromptOrderContext(result stockanalysis.Result) promptOrderContext {

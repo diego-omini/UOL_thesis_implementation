@@ -34,5 +34,8 @@ func (c *Counselor) StockNews(
 	if c.researchFactory != nil {
 		tools = c.researchFactory.ForInstruments([]PublicInstrument{publicInstrument})
 	}
-	return c.executor.ExecuteCounselor(ctx, StockNewsPromptAlias, parameters, tools, facts)
+	requiredCalls := requiredInstrumentSearchCalls(
+		[]PublicInstrument{publicInstrument}, "latest_news", "recent_events", "regulatory_filings",
+	)
+	return c.executor.ExecuteCounselorWithRequiredTools(ctx, StockNewsPromptAlias, parameters, tools, facts, requiredCalls)
 }

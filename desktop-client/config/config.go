@@ -21,6 +21,7 @@ const (
 	aiProviderEnv         = "AI_PROVIDER"
 	aiBaseURLEnv          = "AI_BASE_URL"
 	aiModelEnv            = "AI_MODEL"
+	openAIAPIKeyEnv       = "OPENAI_API_KEY"
 	ollamaAPIKeyEnv       = "OLLAMA_API_KEY"
 	aiSearchBaseURLEnv    = "AI_SEARCH_BASE_URL"
 	aiSearchDomainsEnv    = "AI_SEARCH_ALLOWED_DOMAINS"
@@ -43,6 +44,7 @@ type AIConfig struct {
 	Provider             string
 	BaseURL              string
 	Model                string
+	APIKey               string
 	SearchAPIKey         string
 	SearchBaseURL        string
 	SearchAllowedDomains []string
@@ -76,7 +78,7 @@ func DefaultConfig() AppConfig {
 		AI: AIConfig{
 			Provider:      "ollama",
 			BaseURL:       "http://localhost:11434/api",
-			Model:         "llama3.2",
+			Model:         "qwen3:14b",
 			SearchBaseURL: "https://ollama.com/api",
 			SearchAllowedDomains: []string{
 				"sec.gov", "finra.org", "nasdaq.com", "nyse.com",
@@ -118,9 +120,16 @@ func Load() (AppConfig, error) {
 	}
 	if value, ok := os.LookupEnv(aiBaseURLEnv); ok {
 		cfg.AI.BaseURL = strings.TrimSpace(value)
+	} else if cfg.AI.Provider == "openai" {
+		cfg.AI.BaseURL = "https://api.openai.com/v1"
 	}
 	if value, ok := os.LookupEnv(aiModelEnv); ok {
 		cfg.AI.Model = strings.TrimSpace(value)
+	} else if cfg.AI.Provider == "openai" {
+		cfg.AI.Model = "gpt-6-luna"
+	}
+	if value, ok := os.LookupEnv(openAIAPIKeyEnv); ok {
+		cfg.AI.APIKey = strings.TrimSpace(value)
 	}
 	if value, ok := os.LookupEnv(ollamaAPIKeyEnv); ok {
 		cfg.AI.SearchAPIKey = strings.TrimSpace(value)
@@ -151,11 +160,17 @@ func Load() (AppConfig, error) {
 	if cfg.AI.Provider == "" {
 		return AppConfig{}, fmt.Errorf("%s must not be empty", aiProviderEnv)
 	}
+	if cfg.AI.Provider != "ollama" && cfg.AI.Provider != "openai" {
+		return AppConfig{}, fmt.Errorf("unsupported %s value %q", aiProviderEnv, cfg.AI.Provider)
+	}
 	if err := validateBaseURL(cfg.AI.BaseURL); err != nil {
 		return AppConfig{}, fmt.Errorf("invalid %s: %w", aiBaseURLEnv, err)
 	}
 	if cfg.AI.Model == "" {
 		return AppConfig{}, fmt.Errorf("%s must not be empty", aiModelEnv)
+	}
+	if cfg.AI.Provider == "openai" && cfg.AI.APIKey == "" {
+		return AppConfig{}, fmt.Errorf("%s must be configured when %s is openai", openAIAPIKeyEnv, aiProviderEnv)
 	}
 	if err := validateBaseURL(cfg.AI.SearchBaseURL); err != nil {
 		return AppConfig{}, fmt.Errorf("invalid %s: %w", aiSearchBaseURLEnv, err)
