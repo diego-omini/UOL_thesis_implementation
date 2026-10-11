@@ -38,6 +38,7 @@ import (
 type App struct {
 	ctx              context.Context
 	cfg              config.AppConfig
+	showcase         *showcaseScenario
 	portfolioBroker  broker.PortfolioProvider
 	portfolioHistory broker.PortfolioHistoryProvider
 	snapTradeHistory snapTradeHistoryProvider
@@ -90,6 +91,10 @@ func NewApp() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load application configuration: %w", err)
 	}
+	showcase, err := loadShowcaseScenario()
+	if err != nil {
+		return nil, fmt.Errorf("load controlled showcase scenario: %w", err)
+	}
 
 	client := ibkr.NewClient(
 		cfg.IBKR.BaseURL,
@@ -128,7 +133,7 @@ func NewApp() (*App, error) {
 	tradingService := trading.NewService(client, client, client)
 	fundHoldingsService := fundholdings.NewService(fundholdings.NewISharesSource(nil))
 	var store *persistence.Store
-	if !generatingBindings {
+	if !generatingBindings && showcase == nil {
 		dataDirectory, err := config.DataDirectory()
 		if err != nil {
 			return nil, fmt.Errorf("locate application data directory: %w", err)
@@ -142,6 +147,7 @@ func NewApp() (*App, error) {
 	}
 	return &App{
 		cfg:              cfg,
+		showcase:         showcase,
 		portfolioBroker:  client,
 		portfolioHistory: client,
 		snapTradeHistory: snapTradeHistory,
@@ -174,6 +180,9 @@ func (a *App) startup(ctx context.Context) {
 
 // CheckConnection reports whether the configured broker gateway is ready for portfolio requests.
 func (a *App) CheckConnection() ConnectionStatusView {
+	if a.showcase != nil {
+		return toConnectionStatusView(true, "IBKR Client Portal Gateway is reachable")
+	}
 	ctx := a.ctx
 
 	if ctx == nil {
@@ -283,6 +292,9 @@ func (a *App) OpenIBKRLogin() error {
 
 // KeepSessionAlive refreshes an authenticated session and returns its resulting state.
 func (a *App) KeepSessionAlive() SessionStatusView {
+	if a.showcase != nil {
+		return toSessionStatusView(showcaseSessionStatus())
+	}
 	ctx, cancel := context.WithTimeout(a.context(), brokerOperationTimeout)
 	defer cancel()
 	return toSessionStatusView(a.sessionBroker.KeepAlive(ctx))
@@ -310,6 +322,14 @@ func (a *App) Logout() (SessionStatusView, error) {
 
 // GetPortfolioHistory refreshes and returns bounded portfolio history for the active account.
 func (a *App) GetPortfolioHistory(timeRange string) (PortfolioHistoryView, error) {
+	if a.showcase != nil {
+		to := a.showcase.SnapshotAt.UTC()
+		from, err := portfolioHistoryStart(timeRange, to)
+		if err != nil {
+			return PortfolioHistoryView{}, err
+		}
+		return toPortfolioHistoryView(timeRange, portfoliohistory.Result{From: from, To: to}), nil
+	}
 	ctx, finish := a.beginOperation("history", brokerOperationTimeout)
 	defer finish()
 	result, err := a.loadPortfolioHistory(ctx, timeRange)
@@ -826,16 +846,16 @@ func (a *App) GetPortfolioDataQualityAudit() (AIResponseView, error) {
 	return toAIResponseView(response, a.aiProviderName), nil
 }
 
-// GetPortfolioNews researches the latest material news for every open position.
+// GetPortfolioNews researches material news for up to the 12 largest open positions.
 func (a *App) GetPortfolioNews() (AIResponseView, error) {
 	ctx, finish := a.beginOperation("counselor", counselorOperationTimeout)
 	defer finish()
-	portfolioSnapshot, _, err := a.fetchPortfolio(ctx)
+	portfolioSnapshot, portfolioAnalytics, err := a.fetchPortfolio(ctx)
 	if err != nil {
 		return AIResponseView{}, err
 	}
 
-	response, err := a.aiCounselor.PortfolioNews(ctx, portfolioSnapshot, time.Now())
+	response, err := a.aiCounselor.PortfolioNews(ctx, portfolioSnapshot, portfolioAnalytics, time.Now())
 	if err != nil {
 		return AIResponseView{}, fmt.Errorf("portfolio news failed: %w", err)
 	}
@@ -844,6 +864,9 @@ func (a *App) GetPortfolioNews() (AIResponseView, error) {
 
 // fetchPortfolio coordinates broker retrieval, public fund data, deterministic analytics, and persistence.
 func (a *App) fetchPortfolio(ctx context.Context) (portfolio.Portfolio, analytics.Result, error) {
+	if a.showcase != nil {
+		return a.showcase.Portfolio, analytics.CalculateWithFundHoldings(a.showcase.Portfolio, nil, a.showcase.SnapshotAt), nil
+	}
 	status := a.sessionBroker.CheckSession(ctx)
 	if !status.Ready() {
 		return portfolio.Portfolio{}, analytics.Result{}, fmt.Errorf("portfolio access requires an authenticated IBKR paper session: %s", status.Message)
@@ -953,6 +976,9 @@ func (a *App) cancelOperations() {
 }
 
 func (a *App) checkSession() broker.SessionStatus {
+	if a.showcase != nil {
+		return showcaseSessionStatus()
+	}
 	ctx, cancel := context.WithTimeout(a.context(), brokerOperationTimeout)
 	defer cancel()
 	status := a.sessionBroker.CheckSession(ctx)

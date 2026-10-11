@@ -27,7 +27,8 @@ test('analysis library has distinct workflows grouped by user purpose', () => {
 test('availability rules explain missing portfolio, position, history, risk, and order inputs', () => {
   assert.deepEqual(workflowAvailability(workflowCopy('portfolio_resume'), { positionCount: 0 }), { available: false, reason: 'Requires at least one open position.' })
   assert.equal(workflowAvailability(workflowCopy('portfolio_resume'), { positionCount: 1 }).available, true)
-  assert.match(workflowAvailability(workflowCopy('portfolio_news'), { positionCount: 13 }).reason, /at most 12/)
+  assert.equal(workflowAvailability(workflowCopy('portfolio_news'), { positionCount: 13 }).available, true)
+  assert.match(workflowCopy('portfolio_news').description, /12 largest open positions/)
   assert.match(workflowAvailability(workflowCopy('position_risk'), { stockSelected: true, positionHeld: false }).reason, /currently held/)
   assert.match(workflowAvailability(workflowCopy('portfolio_risk'), { riskObservations: 19 }).reason, /20 common daily returns/)
   assert.match(workflowAvailability(workflowCopy('portfolio_history_summary'), { historyPoints: 0 }).reason, /No observations/)

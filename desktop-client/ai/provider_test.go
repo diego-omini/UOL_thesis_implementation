@@ -287,7 +287,7 @@ func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 		{Instrument: portfolio.Instrument{Symbol: "MSFT", Name: "Microsoft Corp.", AssetClass: "STK"}},
 	}}
 
-	response, err := counselor.PortfolioNews(context.Background(), snapshot, researchTime)
+	response, err := counselor.PortfolioNews(context.Background(), snapshot, analytics.Calculate(snapshot, researchTime), researchTime)
 	if err != nil {
 		t.Fatalf("PortfolioNews returned an error: %v", err)
 	}
@@ -322,24 +322,39 @@ func TestPortfolioNewsRejectsEmptyPortfolio(t *testing.T) {
 		t.Fatalf("NewCatalog returned an error: %v", err)
 	}
 	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
-	if _, err := counselor.PortfolioNews(context.Background(), portfolio.Portfolio{}, time.Now()); err == nil {
+	if _, err := counselor.PortfolioNews(context.Background(), portfolio.Portfolio{}, analytics.Result{}, time.Now()); err == nil {
 		t.Fatal("expected an empty portfolio error")
 	}
 }
 
-func TestPortfolioNewsRejectsUnboundedPositionCoverage(t *testing.T) {
+func TestPortfolioNewsResearchesTwelveLargestPositions(t *testing.T) {
 	catalog, err := NewCatalog()
 	if err != nil {
 		t.Fatal(err)
 	}
 	positions := make([]portfolio.Position, maxPortfolioNewsPositions+1)
+	weights := make([]analytics.PositionWeight, len(positions))
 	for index := range positions {
 		positions[index].Instrument = portfolio.Instrument{ContractID: int64(index + 1), Symbol: fmt.Sprintf("P%d", index+1), Name: fmt.Sprintf("Position %d", index+1)}
+		weights[index].Weight = analytics.Ratio{Value: float64(index + 1), Available: true}
 	}
-	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
-	_, err = counselor.PortfolioNews(context.Background(), portfolio.Portfolio{Positions: positions}, time.Now())
-	if err == nil || !strings.Contains(err.Error(), "at most 12") {
-		t.Fatalf("unbounded portfolio-news coverage was not rejected: %v", err)
+	provider := &recordingProvider{responses: []ChatResponse{{Message: Message{Role: "assistant", Content: validStructuredResponse}, Model: "test-model"}}}
+	researchProvider := &queryRecordingResearchProvider{}
+	counselor := NewCounselor(NewExecutor(catalog, provider), NewResearchToolsFactory(researchProvider, []string{"sec.gov"}, maxPortfolioNewsPositions))
+	_, err = counselor.PortfolioNews(context.Background(), portfolio.Portfolio{Positions: positions}, analytics.Result{PositionWeights: weights}, time.Now())
+	if err != nil {
+		t.Fatalf("PortfolioNews returned an error: %v", err)
+	}
+	if len(researchProvider.queries) != maxPortfolioNewsPositions {
+		t.Fatalf("portfolio-news searches = %d, want %d", len(researchProvider.queries), maxPortfolioNewsPositions)
+	}
+	for _, query := range researchProvider.queries {
+		if strings.HasPrefix(query, "Position 1 P1 ") {
+			t.Fatalf("smallest position was researched: %#v", researchProvider.queries)
+		}
+	}
+	if !strings.Contains(provider.requests[0].Messages[1].Content, "warning.portfolio_news.position_coverage") {
+		t.Fatalf("portfolio-news prompt does not disclose bounded coverage:\n%s", provider.requests[0].Messages[1].Content)
 	}
 }
 
@@ -349,7 +364,7 @@ func TestPortfolioNewsRejectsPositionWithoutPublicIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
-	_, err = counselor.PortfolioNews(context.Background(), portfolio.Portfolio{Positions: []portfolio.Position{{Instrument: portfolio.Instrument{ContractID: 42}}}}, time.Now())
+	_, err = counselor.PortfolioNews(context.Background(), portfolio.Portfolio{Positions: []portfolio.Position{{Instrument: portfolio.Instrument{ContractID: 42}}}}, analytics.Result{}, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "public name or ticker") {
 		t.Fatalf("missing portfolio-news identity was not rejected: %v", err)
 	}

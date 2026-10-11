@@ -236,7 +236,7 @@ func fundLookThroughFacts(results []portfolio.FundHoldings, limit int) []Counsel
 	return facts
 }
 
-func portfolioNewsFacts(snapshot portfolio.Portfolio, researchTime time.Time) []CounselorFact {
+func portfolioNewsFacts(snapshot portfolio.Portfolio, totalPositionCount int, researchTime time.Time) []CounselorFact {
 	facts := []CounselorFact{textFact("research.timestamp", CategorySuppliedFact, "Research timestamp", researchTime.UTC().Format(time.RFC3339))}
 	for index, position := range snapshot.Positions {
 		prefix := positionFactPrefix(position.Instrument, index)
@@ -254,6 +254,15 @@ func portfolioNewsFacts(snapshot portfolio.Portfolio, researchTime time.Time) []
 			name,
 			textFact(prefix+".asset_class", CategorySuppliedFact, "Position asset class", position.Instrument.AssetClass),
 		)
+	}
+	if totalPositionCount > len(snapshot.Positions) {
+		facts = append(facts, CounselorFact{
+			ID: "warning.portfolio_news.position_coverage", Kind: string(CategoryUnavailableInformation),
+			Label: "Portfolio-news position coverage", Available: false,
+			TextValue:          fmt.Sprintf("largest %d of %d open positions by available absolute gross-exposure weight", len(snapshot.Positions), totalPositionCount),
+			Limitation:         fmt.Sprintf("News research was limited to the %d largest of %d open positions by available absolute gross-exposure weight.", len(snapshot.Positions), totalPositionCount),
+			RequiredLimitation: true,
+		})
 	}
 	return facts
 }

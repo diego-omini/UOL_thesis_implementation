@@ -124,12 +124,23 @@ func TestNewsFactsRequireCoverageForEverySuppliedIdentity(t *testing.T) {
 		{Instrument: portfolio.Instrument{ContractID: 1, Symbol: "AAA", Name: "Alpha"}},
 		{Instrument: portfolio.Instrument{ContractID: 2, Symbol: "BBB", Name: "Beta"}},
 	}}
-	facts := portfolioNewsFacts(snapshot, time.Now())
+	facts := portfolioNewsFacts(snapshot, len(snapshot.Positions), time.Now())
 	for _, id := range []string{"position.contract_1.symbol", "position.contract_2.symbol"} {
 		fact := findFact(facts, id)
 		if fact == nil || !fact.RequiredObservation {
 			t.Fatalf("identity coverage is not required for %s: %#v", id, facts)
 		}
+	}
+}
+
+func TestPortfolioNewsFactsRequireTruncatedCoverageLimitation(t *testing.T) {
+	snapshot := portfolio.Portfolio{Positions: []portfolio.Position{
+		{Instrument: portfolio.Instrument{ContractID: 2, Symbol: "BBB", Name: "Beta"}},
+	}}
+	facts := portfolioNewsFacts(snapshot, 14, time.Now())
+	coverage := findFact(facts, "warning.portfolio_news.position_coverage")
+	if coverage == nil || !coverage.RequiredLimitation || !strings.Contains(coverage.Limitation, "1 largest of 14") {
+		t.Fatalf("portfolio-news coverage limitation is missing: %#v", coverage)
 	}
 }
 

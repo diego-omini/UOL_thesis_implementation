@@ -37,6 +37,21 @@ Version 3 remains available only to reproduce its preserved pilot contract:
 go run ./cmd/evaluate -suite-version 3 -run-kind pilot -pilot-repetitions 1
 ```
 
+## UI capture
+
+A build tagged `showcase` substitutes one controlled portfolio for the broker portfolio response without connecting to IBKR or writing to the application database. The frontend, navigation, analysis library, and counselor interactions are otherwise the same as in a normal build, with no capture-mode label in the rendered interface. Identify controlled scenarios in the thesis caption or surrounding methodology text rather than inside the application screenshot.
+
+Select a scenario before starting Wails:
+
+```powershell
+$env:SHOWCASE_SCENARIO = "concentrated-multicurrency"
+wails dev -tags showcase
+```
+
+Available scenarios are `concentrated-multicurrency`, `diversified-mixed-exposure`, `incomplete-data`, `large-diversified`, `south-korea-20-stock`, and `etf-only-12`. The first three are protocol-locked evaluation inputs; the other three are showcase-only fixtures and do not change the completed comparison suite. Open the analysis library and start each prompt manually, as in the normal application. The configured Ollama or OpenAI provider still produces the displayed answer, so use the same provider and model settings across screenshots. Features that require live stock, news, price-history, or trading data remain unavailable without IBKR.
+
+Normal `wails dev` and `wails build` commands do not contain the controlled fixtures. A tagged production build writes to the standard executable path, so run an untagged `wails build` before packaging the submitted application if `wails build -tags showcase` was used.
+
 `AI_BASE_URL` or `-base-url` may select another compatible endpoint. Leave it unset for the default OpenAI endpoint in versions 3 and 4. `-output` changes only the JSON result directory, while `-database` can select a separate SQLite database for an isolated evaluation run. Hosted-model suites store the provider-returned response ID, model, service tier, effective reasoning effort, and token usage for every completed call. Credentials are never written to the artifacts.
 
 ## Automated scoring
