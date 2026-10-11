@@ -50,6 +50,28 @@ func TestRecentAnalysisViewExposesOnlyValidatedResponseBoundary(t *testing.T) {
 	}
 }
 
+func TestAIResponseViewPreservesUnvalidatedRawResponse(t *testing.T) {
+	view := toAIResponseView(ai.Response{Text: "not structured", Unvalidated: true, Model: "local"}, "ollama")
+	if view.Text != "not structured" || !view.Unvalidated || view.HasStructured {
+		t.Fatalf("unexpected unvalidated response DTO: %+v", view)
+	}
+}
+
+func TestAIResponseViewMapsUnvalidatedStructuredPresentation(t *testing.T) {
+	view := toAIResponseView(ai.Response{
+		Text: "raw", Unvalidated: true, Model: "local",
+		Structured: &ai.CounselorResponse{
+			SchemaVersion: 1,
+			Summary:       "Readable summary",
+			Observations:  []ai.CounselorObservation{},
+			Limitations:   []ai.CounselorLimitation{},
+		},
+	}, "ollama")
+	if !view.Unvalidated || !view.HasStructured || view.Structured.Summary != "Readable summary" {
+		t.Fatalf("unexpected unvalidated structured presentation: %+v", view)
+	}
+}
+
 func TestToPortfolioHistoryViewPreservesAvailabilityAndMetadata(t *testing.T) {
 	capturedAt := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
 	view := toPortfolioHistoryView("30d", portfoliohistory.Result{

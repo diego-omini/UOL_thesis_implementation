@@ -33,7 +33,7 @@ func TestOpenAIProviderChat(t *testing.T) {
 			t.Fatalf("unexpected generation settings: %+v", payload)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"status":"completed","model":"test-model-2026-01-01","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"{\"summary\":\"ok\"}"}]}]}`))
+		_, _ = writer.Write([]byte(`{"id":"resp_test","status":"completed","model":"test-model-2026-01-01","service_tier":"default","reasoning":{"effort":"low"},"usage":{"input_tokens":120,"input_tokens_details":{"cached_tokens":20,"cache_write_tokens":0},"output_tokens":35,"output_tokens_details":{"reasoning_tokens":10},"total_tokens":155},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"{\"summary\":\"ok\"}"}]}]}`))
 	}))
 	defer server.Close()
 
@@ -44,13 +44,16 @@ func TestOpenAIProviderChat(t *testing.T) {
 			Name: "test_tool", Description: "Test.", Parameters: map[string]any{"type": "object"},
 		}},
 		ResponseSchema: map[string]any{"type": "object"},
-		Settings:       GenerationSettings{Temperature: 0.2, MaxTokens: 400},
+		Settings:       GenerationSettings{Temperature: 0.2, MaxTokens: 400, ReasoningEffort: "low"},
 	})
 	if err != nil {
 		t.Fatalf("Chat returned an error: %v", err)
 	}
 	if response.Message.Content != `{"summary":"ok"}` || response.Model != "test-model-2026-01-01" || response.FinishReason != "completed" {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+	if response.ResponseID != "resp_test" || response.ServiceTier != "default" || response.EffectiveReasoningEffort != "low" || response.Usage.TotalTokens != 155 || response.Usage.CachedInputTokens != 20 || response.Usage.ReasoningTokens != 10 {
+		t.Fatalf("response metadata was not retained: %+v", response)
 	}
 }
 
@@ -63,6 +66,9 @@ func TestOpenAIProviderOmitsTemperatureForReasoningModel(t *testing.T) {
 		if payload.Model != "gpt-6-luna" || payload.Temperature != nil {
 			t.Fatalf("reasoning-model request included temperature: %+v", payload)
 		}
+		if payload.Reasoning == nil || payload.Reasoning.Effort != "low" {
+			t.Fatalf("reasoning effort was not configured: %+v", payload.Reasoning)
+		}
 		_, _ = writer.Write([]byte(`{"status":"completed","model":"gpt-6-luna","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`))
 	}))
 	defer server.Close()
@@ -70,7 +76,7 @@ func TestOpenAIProviderOmitsTemperatureForReasoningModel(t *testing.T) {
 	provider := NewOpenAIProvider(server.URL, "test-key", "gpt-6-luna")
 	if _, err := provider.Chat(context.Background(), ChatRequest{
 		Messages: []Message{{Role: "user", Content: "prompt"}},
-		Settings: GenerationSettings{Temperature: 0.7, MaxTokens: 100},
+		Settings: GenerationSettings{Temperature: 0.7, MaxTokens: 100, ReasoningEffort: "low"},
 	}); err != nil {
 		t.Fatalf("Chat returned an error: %v", err)
 	}

@@ -60,6 +60,11 @@ export interface HistoryChart {
   availableCount: number
 }
 
+interface HistoryVerticalBounds {
+  min: number
+  max: number
+}
+
 export interface HistoryAxisTick {
   x: number
   timestamp: string
@@ -123,16 +128,7 @@ export function portfolioHistoryChart(
   const lastObservationTime = Math.max(...available.map(item => item.timestamp))
   const observedMin = Math.min(...values)
   const observedMax = Math.max(...values)
-  const centre = (observedMin + observedMax) / 2
-  const observedSpan = observedMax - observedMin
-  const minimumSpan = metric === 'concentration'
-    ? 0.05
-    : metric === 'positionCount'
-      ? 2
-      : Math.max(Math.abs(centre) * 0.01, 1)
-  const span = Math.max(observedSpan * 1.2, minimumSpan)
-  const min = centre - span / 2
-  const max = centre + span / 2
+  const { min, max } = historyVerticalBounds(observedMin, observedMax, metric)
 
   const segments: HistoryChartPoint[][] = []
   let active: HistoryChartPoint[] = []
@@ -165,6 +161,26 @@ export function portfolioHistoryChart(
     lastObservation: new Date(lastObservationTime).toISOString(),
     availableCount: values.length,
   }
+}
+
+// historyVerticalBounds produces three power-of-ten axis keypoints that contain the observations.
+function historyVerticalBounds(observedMin: number, observedMax: number, metric: PortfolioHistoryMetric): HistoryVerticalBounds {
+  const centre = (observedMin + observedMax) / 2
+  const observedSpan = observedMax - observedMin
+  const minimumSpan = metric === 'concentration'
+    ? 0.02
+    : metric === 'positionCount'
+      ? 2
+      : Math.max(Math.abs(centre) * 0.01, 1)
+  const paddedMin = centre - Math.max(observedSpan * 1.2, minimumSpan) / 2
+  const paddedMax = centre + Math.max(observedSpan * 1.2, minimumSpan) / 2
+  let step = 10 ** Math.ceil(Math.log10(Math.max((paddedMax - paddedMin) / 2, Number.EPSILON)))
+  let min = Math.floor(paddedMin / step) * step
+  while (min + 2 * step < paddedMax) {
+    step *= 10
+    min = Math.floor(paddedMin / step) * step
+  }
+  return { min, max: min + 2 * step }
 }
 
 function observationsAreContinuous(previous: HistoryChartPoint, current: HistoryChartPoint): boolean {

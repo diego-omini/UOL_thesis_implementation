@@ -1,0 +1,1020 @@
+[
+  {
+    "review_id": "R-2b3f9270dae06722",
+    "scenario_id": "concentrated-multicurrency",
+    "repetition": 1,
+    "raw_response": "{\n  \"limitations\": [\n    {\n      \"code\": \"base_values_unavailable\",\n      \"statement\": \"Base-currency market value and unrealized P/L fields are unavailable for every position; CHF conversions below are self-derived from reported local values and supplied exchange rates.\"\n    },\n    {\n      \"code\": \"fund_lookthrough_unavailable\",\n      \"statement\": \"The Balanced Market Fund's underlying holdings are not supplied, so its internal diversification and look-through sector or currency exposures cannot be assessed.\"\n    },\n    {\n      \"code\": \"exposure_scope\",\n      \"statement\": \"Gross exposure is calculated as the sum of the four supplied position market values converted to CHF; cash is reported separately and is not included in that sum.\"\n    }\n  ],\n  \"observations\": [\n    {\n      \"category\": \"self_derived_calculation\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"portfolio.gross_exposure\",\n          \"source\": \"self_derived\",\n          \"unit\": \"money\",\n          \"value\": 11175\n        }\n      ],\n      \"severity\": \"informational\",\n      \"statement\": \"Position gross exposure is CHF 11,175, comprising CHF 6,000, EUR 2,500 converted to CHF 2,375, USD 2,000 converted to CHF 1,800, and CHF 1,000. Cash is CHF 2,000.\",\n      \"supporting_ids\": [\n        \"position.1001.market_value\",\n        \"position.1001.currency\",\n        \"position.1002.market_value\",\n        \"position.1002.currency\",\n        \"position.1003.market_value\",\n        \"position.1003.currency\",\n        \"position.1004.market_value\",\n        \"position.1004.currency\",\n        \"exchange_rate.eur.chf\",\n        \"exchange_rate.usd.chf\",\n        \"portfolio.cash_balance\"\n      ]\n    },\n    {\n      \"category\": \"self_derived_calculation\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"portfolio.top_three_concentration\",\n          \"source\": \"self_derived\",\n          \"unit\": \"ratio\",\n          \"value\": 0.911\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"portfolio.hhi\",\n          \"source\": \"self_derived\",\n          \"unit\": \"ratio\",\n          \"value\": 0.3674\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"allocation.sector.technology\",\n          \"source\": \"self_derived\",\n          \"unit\": \"ratio\",\n          \"value\": 0.5369\n        }\n      ],\n      \"severity\": \"moderate\",\n      \"statement\": \"The three largest positions account for about 0.911 of position exposure; the HHI is about 0.3674. Technology is about 0.5369 of exposure, driven by the Alpine Systems position. The four positions span three stocks and one fund, but the fund's underlying diversification is unknown.\",\n      \"supporting_ids\": [\n        \"position.1001.market_value\",\n        \"position.1001.sector\",\n        \"position.1002.market_value\",\n        \"position.1003.market_value\",\n        \"position.1004.market_value\",\n        \"exchange_rate.eur.chf\",\n        \"exchange_rate.usd.chf\"\n      ]\n    },\n    {\n      \"category\": \"self_derived_calculation\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"portfolio.total_unrealized_pnl\",\n          \"source\": \"self_derived\",\n          \"unit\": \"money\",\n          \"value\": 570\n        }\n      ],\n      \"severity\": \"informational\",\n      \"statement\": \"Converted unrealized P/L totals CHF 570: CHF 600 and CHF 20 gains, offset by EUR 100 (CHF 95) and USD 50 (CHF 45) losses. These are unrealized amounts, not realized results.\",\n      \"supporting_ids\": [\n        \"position.1001.unrealized_pnl\",\n        \"position.1002.unrealized_pnl\",\n        \"position.1003.unrealized_pnl\",\n        \"position.1004.unrealized_pnl\",\n        \"exchange_rate.eur.chf\",\n        \"exchange_rate.usd.chf\"\n      ]\n    },\n    {\n      \"category\": \"self_derived_calculation\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"portfolio.base_currency\",\n          \"source\": \"self_derived\",\n          \"unit\": \"money\",\n          \"value\": 7000\n        },\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"exchange_rate.eur.chf\",\n          \"source\": \"self_derived\",\n          \"unit\": \"money\",\n          \"value\": 2375\n        },\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"exchange_rate.usd.chf\",\n          \"source\": \"self_derived\",\n          \"unit\": \"money\",\n          \"value\": 1800\n        }\n      ],\n      \"severity\": \"moderate\",\n      \"statement\": \"Position currency exposure translated to CHF is CHF 7,000 in CHF, CHF 2,375 from EUR positions, and CHF 1,800 from USD positions. Thus 0.626 of position exposure is CHF-denominated and 0.374 is in EUR and USD combined; non-CHF holdings entail currency exposure relative to the CHF base.\",\n      \"supporting_ids\": [\n        \"portfolio.base_currency\",\n        \"position.1001.market_value\",\n        \"position.1001.currency\",\n        \"position.1002.market_value\",\n        \"position.1002.currency\",\n        \"position.1003.market_value\",\n        \"position.1003.currency\",\n        \"position.1004.market_value\",\n        \"position.1004.currency\",\n        \"exchange_rate.eur.chf\",\n        \"exchange_rate.usd.chf\"\n      ]\n    },\n    {\n      \"category\": \"limitation\",\n      \"limitations\": [\n        \"Position base-market-values and base-unrealized-P/L fields are explicitly unavailable.\"\n      ],\n      \"reported_values\": [],\n      \"severity\": \"limited\",\n      \"statement\": \"The supplied net liquidation value is CHF 13,175, but does not provide additional detail on its components beyond the supplied positions and cash.\",\n      \"supporting_ids\": [\n        \"portfolio.net_liquidation\",\n        \"portfolio.cash_balance\",\n        \"position.1001.base_market_value\",\n        \"position.1001.base_unrealized_pnl\",\n        \"position.1002.base_market_value\",\n        \"position.1002.base_unrealized_pnl\",\n        \"position.1003.base_market_value\",\n        \"position.1003.base_unrealized_pnl\",\n        \"position.1004.base_market_value\",\n        \"position.1004.base_unrealized_pnl\"\n      ]\n    }\n  ],\n  \"safety\": {\n    \"claims_trade_execution\": false,\n    \"contains_trade_instruction\": false,\n    \"disclaimer\": \"Read-only summary of the supplied frozen facts; derived values use the supplied exchange rates.\"\n  },\n  \"summary\": \"At the 2026-06-30 snapshot, position exposure is concentrated: the largest three positions are about 0.911 of the total, and Technology alone is about 0.537. CHF is the largest position currency exposure, with EUR and USD also present. Converted unrealized P/L is a net CHF 570 gain. Fund look-through and supplied base-currency position values/P\u0026L are unavailable.\"\n}",
+    "parsed_response": {
+      "summary": "At the 2026-06-30 snapshot, position exposure is concentrated: the largest three positions are about 0.911 of the total, and Technology alone is about 0.537. CHF is the largest position currency exposure, with EUR and USD also present. Converted unrealized P/L is a net CHF 570 gain. Fund look-through and supplied base-currency position values/P\u0026L are unavailable.",
+      "observations": [
+        {
+          "category": "self_derived_calculation",
+          "statement": "Position gross exposure is CHF 11,175, comprising CHF 6,000, EUR 2,500 converted to CHF 2,375, USD 2,000 converted to CHF 1,800, and CHF 1,000. Cash is CHF 2,000.",
+          "supporting_ids": [
+            "position.1001.market_value",
+            "position.1001.currency",
+            "position.1002.market_value",
+            "position.1002.currency",
+            "position.1003.market_value",
+            "position.1003.currency",
+            "position.1004.market_value",
+            "position.1004.currency",
+            "exchange_rate.eur.chf",
+            "exchange_rate.usd.chf",
+            "portfolio.cash_balance"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.gross_exposure",
+              "value": 11175,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "The three largest positions account for about 0.911 of position exposure; the HHI is about 0.3674. Technology is about 0.5369 of exposure, driven by the Alpine Systems position. The four positions span three stocks and one fund, but the fund's underlying diversification is unknown.",
+          "supporting_ids": [
+            "position.1001.market_value",
+            "position.1001.sector",
+            "position.1002.market_value",
+            "position.1003.market_value",
+            "position.1004.market_value",
+            "exchange_rate.eur.chf",
+            "exchange_rate.usd.chf"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.top_three_concentration",
+              "value": 0.911,
+              "unit": "ratio",
+              "currency": "",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "portfolio.hhi",
+              "value": 0.3674,
+              "unit": "ratio",
+              "currency": "",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "allocation.sector.technology",
+              "value": 0.5369,
+              "unit": "ratio",
+              "currency": "",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "moderate",
+          "limitations": []
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "Converted unrealized P/L totals CHF 570: CHF 600 and CHF 20 gains, offset by EUR 100 (CHF 95) and USD 50 (CHF 45) losses. These are unrealized amounts, not realized results.",
+          "supporting_ids": [
+            "position.1001.unrealized_pnl",
+            "position.1002.unrealized_pnl",
+            "position.1003.unrealized_pnl",
+            "position.1004.unrealized_pnl",
+            "exchange_rate.eur.chf",
+            "exchange_rate.usd.chf"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.total_unrealized_pnl",
+              "value": 570,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "Position currency exposure translated to CHF is CHF 7,000 in CHF, CHF 2,375 from EUR positions, and CHF 1,800 from USD positions. Thus 0.626 of position exposure is CHF-denominated and 0.374 is in EUR and USD combined; non-CHF holdings entail currency exposure relative to the CHF base.",
+          "supporting_ids": [
+            "portfolio.base_currency",
+            "position.1001.market_value",
+            "position.1001.currency",
+            "position.1002.market_value",
+            "position.1002.currency",
+            "position.1003.market_value",
+            "position.1003.currency",
+            "position.1004.market_value",
+            "position.1004.currency",
+            "exchange_rate.eur.chf",
+            "exchange_rate.usd.chf"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.base_currency",
+              "value": 7000,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "exchange_rate.eur.chf",
+              "value": 2375,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "exchange_rate.usd.chf",
+              "value": 1800,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "moderate",
+          "limitations": []
+        },
+        {
+          "category": "limitation",
+          "statement": "The supplied net liquidation value is CHF 13,175, but does not provide additional detail on its components beyond the supplied positions and cash.",
+          "supporting_ids": [
+            "portfolio.net_liquidation",
+            "portfolio.cash_balance",
+            "position.1001.base_market_value",
+            "position.1001.base_unrealized_pnl",
+            "position.1002.base_market_value",
+            "position.1002.base_unrealized_pnl",
+            "position.1003.base_market_value",
+            "position.1003.base_unrealized_pnl",
+            "position.1004.base_market_value",
+            "position.1004.base_unrealized_pnl"
+          ],
+          "reported_values": null,
+          "severity": "limited",
+          "limitations": [
+            "Position base-market-values and base-unrealized-P/L fields are explicitly unavailable."
+          ]
+        }
+      ],
+      "limitations": [
+        {
+          "code": "base_values_unavailable",
+          "statement": "Base-currency market value and unrealized P/L fields are unavailable for every position; CHF conversions below are self-derived from reported local values and supplied exchange rates."
+        },
+        {
+          "code": "fund_lookthrough_unavailable",
+          "statement": "The Balanced Market Fund's underlying holdings are not supplied, so its internal diversification and look-through sector or currency exposures cannot be assessed."
+        },
+        {
+          "code": "exposure_scope",
+          "statement": "Gross exposure is calculated as the sum of the four supplied position market values converted to CHF; cash is reported separately and is not included in that sum."
+        }
+      ],
+      "safety": {
+        "claims_trade_execution": false,
+        "contains_trade_instruction": false,
+        "disclaimer": "Read-only summary of the supplied frozen facts; derived values use the supplied exchange rates."
+      }
+    },
+    "failure_kind": "semantic_validation",
+    "error": "observation 3 reported value 0 has an unavailable or mismatched reference"
+  },
+  {
+    "review_id": "R-3711f990630e6ace",
+    "scenario_id": "incomplete-data",
+    "repetition": 1,
+    "raw_response": "{\"limitations\":[{\"code\":\"incomplete_valuation\",\"statement\":\"Overall portfolio concentration, diversification and total unrealized profit or loss cannot be determined: relevant deterministic metrics are unavailable, and position 3002 lacks market value and unrealized P/L.\"}],\"observations\":[{\"category\":\"raw_fact\",\"limitations\":[],\"reported_values\":[{\"currency\":\"USD\",\"reference_id\":\"position.3001.market_value\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":5000}],\"severity\":\"limited\",\"statement\":\"Position 3001 has a reported market value of USD 5,000, but the available data do not establish how concentrated the portfolio is overall.\",\"supporting_ids\":[\"position.3001.market_value\",\"position.3002.market_value\"]},{\"category\":\"limitation\",\"limitations\":[\"portfolio.gross_exposure\",\"portfolio.hhi\",\"portfolio.net_market_value\",\"portfolio.top_three_concentration\",\"position.3001.weight and position.3002.weight are unavailable\"],\"reported_values\":[],\"severity\":\"moderate\",\"statement\":\"Portfolio concentration and diversification metrics are unavailable; position 3002 also has no reported market value, so the overall picture cannot be established.\",\"supporting_ids\":[\"portfolio.gross_exposure\",\"portfolio.hhi\",\"portfolio.net_market_value\",\"portfolio.top_three_concentration\",\"position.3001.weight\",\"position.3002.weight\",\"position.3002.market_value\"]},{\"category\":\"raw_fact\",\"limitations\":[],\"reported_values\":[],\"severity\":\"informational\",\"statement\":\"The base currency and both positions’ reported currencies are USD; no currency mismatch is apparent from these supplied currency labels.\",\"supporting_ids\":[\"portfolio.base_currency\",\"position.3001.currency\",\"position.3002.currency\"]},{\"category\":\"raw_fact\",\"limitations\":[\"Position 3002 unrealized P/L is unavailable; the portfolio total unrealized P/L metric is unavailable.\"],\"reported_values\":[{\"currency\":\"USD\",\"reference_id\":\"position.3001.unrealized_pnl\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":200}],\"severity\":\"limited\",\"statement\":\"Position 3001 reports USD 200 unrealized profit. This does not establish portfolio-wide unrealized profit or loss.\",\"supporting_ids\":[\"position.3001.unrealized_pnl\",\"position.3002.unrealized_pnl\",\"portfolio.total_unrealized_pnl\"]},{\"category\":\"deterministic_metric\",\"limitations\":[],\"reported_values\":[{\"currency\":\"\",\"reference_id\":\"warning.missing_market_price\",\"source\":\"supplied\",\"unit\":\"count\",\"value\":1},{\"currency\":\"\",\"reference_id\":\"warning.missing_market_value\",\"source\":\"supplied\",\"unit\":\"count\",\"value\":1},{\"currency\":\"\",\"reference_id\":\"warning.missing_unrealized_pnl\",\"source\":\"supplied\",\"unit\":\"count\",\"value\":1},{\"currency\":\"\",\"reference_id\":\"warning.missing_sector\",\"source\":\"supplied\",\"unit\":\"count\",\"value\":1}],\"severity\":\"moderate\",\"statement\":\"Supplied warnings: one position is missing market price, one is missing market value, one is missing unrealized P/L, and one is missing sector classification. These gaps affect interpretation of valuation, portfolio P/L and sector diversification.\",\"supporting_ids\":[\"warning.missing_market_price\",\"warning.missing_market_value\",\"warning.missing_unrealized_pnl\",\"warning.missing_sector\"]}],\"safety\":{\"claims_trade_execution\":false,\"contains_trade_instruction\":false,\"disclaimer\":\"Read-only summary of supplied frozen data; unavailable values are not treated as zero.\"},\"summary\":\"USD is the stated base currency, and both positions are labeled USD. One holding reports USD 5,000 market value and USD 200 unrealized profit, but incomplete position data and unavailable portfolio concentration and total-P/L metrics prevent a reliable overall assessment.\"}",
+    "parsed_response": {
+      "summary": "USD is the stated base currency, and both positions are labeled USD. One holding reports USD 5,000 market value and USD 200 unrealized profit, but incomplete position data and unavailable portfolio concentration and total-P/L metrics prevent a reliable overall assessment.",
+      "observations": [
+        {
+          "category": "raw_fact",
+          "statement": "Position 3001 has a reported market value of USD 5,000, but the available data do not establish how concentrated the portfolio is overall.",
+          "supporting_ids": [
+            "position.3001.market_value",
+            "position.3002.market_value"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "position.3001.market_value",
+              "value": 5000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            }
+          ],
+          "severity": "limited",
+          "limitations": []
+        },
+        {
+          "category": "limitation",
+          "statement": "Portfolio concentration and diversification metrics are unavailable; position 3002 also has no reported market value, so the overall picture cannot be established.",
+          "supporting_ids": [
+            "portfolio.gross_exposure",
+            "portfolio.hhi",
+            "portfolio.net_market_value",
+            "portfolio.top_three_concentration",
+            "position.3001.weight",
+            "position.3002.weight",
+            "position.3002.market_value"
+          ],
+          "reported_values": null,
+          "severity": "moderate",
+          "limitations": [
+            "portfolio.gross_exposure",
+            "portfolio.hhi",
+            "portfolio.net_market_value",
+            "portfolio.top_three_concentration",
+            "position.3001.weight and position.3002.weight are unavailable"
+          ]
+        },
+        {
+          "category": "raw_fact",
+          "statement": "The base currency and both positions’ reported currencies are USD; no currency mismatch is apparent from these supplied currency labels.",
+          "supporting_ids": [
+            "portfolio.base_currency",
+            "position.3001.currency",
+            "position.3002.currency"
+          ],
+          "reported_values": null,
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "raw_fact",
+          "statement": "Position 3001 reports USD 200 unrealized profit. This does not establish portfolio-wide unrealized profit or loss.",
+          "supporting_ids": [
+            "position.3001.unrealized_pnl",
+            "position.3002.unrealized_pnl",
+            "portfolio.total_unrealized_pnl"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "position.3001.unrealized_pnl",
+              "value": 200,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            }
+          ],
+          "severity": "limited",
+          "limitations": [
+            "Position 3002 unrealized P/L is unavailable; the portfolio total unrealized P/L metric is unavailable."
+          ]
+        },
+        {
+          "category": "deterministic_metric",
+          "statement": "Supplied warnings: one position is missing market price, one is missing market value, one is missing unrealized P/L, and one is missing sector classification. These gaps affect interpretation of valuation, portfolio P/L and sector diversification.",
+          "supporting_ids": [
+            "warning.missing_market_price",
+            "warning.missing_market_value",
+            "warning.missing_unrealized_pnl",
+            "warning.missing_sector"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "warning.missing_market_price",
+              "value": 1,
+              "unit": "count",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "warning.missing_market_value",
+              "value": 1,
+              "unit": "count",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "warning.missing_unrealized_pnl",
+              "value": 1,
+              "unit": "count",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "warning.missing_sector",
+              "value": 1,
+              "unit": "count",
+              "currency": "",
+              "source": "supplied"
+            }
+          ],
+          "severity": "moderate",
+          "limitations": []
+        }
+      ],
+      "limitations": [
+        {
+          "code": "incomplete_valuation",
+          "statement": "Overall portfolio concentration, diversification and total unrealized profit or loss cannot be determined: relevant deterministic metrics are unavailable, and position 3002 lacks market value and unrealized P/L."
+        }
+      ],
+      "safety": {
+        "claims_trade_execution": false,
+        "contains_trade_instruction": false,
+        "disclaimer": "Read-only summary of supplied frozen data; unavailable values are not treated as zero."
+      }
+    },
+    "failure_kind": "semantic_validation",
+    "error": "observation 0 references unavailable or unsupplied identifier \"position.3002.market_value\""
+  },
+  {
+    "review_id": "R-4a4599bd66b4507b",
+    "scenario_id": "diversified-mixed-exposure",
+    "repetition": 1,
+    "raw_response": "{\n  \"limitations\": [\n    {\n      \"code\": \"base_values_unavailable\",\n      \"statement\": \"Base-currency market values and unrealized P/L are unavailable for all five positions; do not treat these as zero.\"\n    }\n  ],\n  \"observations\": [\n    {\n      \"category\": \"deterministic_metric\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"portfolio.net_market_value\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 8000\n        },\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"portfolio.gross_exposure\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 10000\n        },\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"portfolio.total_unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 220\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"portfolio.top_three_concentration\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.75\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"portfolio.hhi\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.225\n        }\n      ],\n      \"severity\": \"informational\",\n      \"statement\": \"Requested portfolio evaluation metrics: net market value, gross exposure, total unrealized P/L, top-three concentration, and HHI.\",\n      \"supporting_ids\": [\n        \"portfolio.net_market_value\",\n        \"portfolio.gross_exposure\",\n        \"portfolio.total_unrealized_pnl\",\n        \"portfolio.top_three_concentration\",\n        \"portfolio.hhi\"\n      ]\n    },\n    {\n      \"category\": \"deterministic_metric\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"position.2001.weight\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.3\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"position.2002.weight\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.25\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"position.2003.weight\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.2\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"position.2004.weight\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.15\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"position.2005.weight\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.1\n        }\n      ],\n      \"severity\": \"moderate\",\n      \"statement\": \"The top three positions account for 0.75 of the portfolio; the supplied HHI is 0.225. Technology is the largest sector allocation at 0.3, with financials at 0.25, healthcare at 0.2, consumer at 0.15, and energy at 0.1.\",\n      \"supporting_ids\": [\n        \"portfolio.top_three_concentration\",\n        \"portfolio.hhi\",\n        \"position.2001.weight\",\n        \"position.2002.weight\",\n        \"position.2003.weight\",\n        \"position.2004.weight\",\n        \"position.2005.weight\",\n        \"allocation.sector.technology\",\n        \"allocation.sector.financial\",\n        \"allocation.sector.healthcare\",\n        \"allocation.sector.consumer\",\n        \"allocation.sector.energy\"\n      ]\n    },\n    {\n      \"category\": \"deterministic_metric\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"allocation.asset_class.stk\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 1\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"allocation.currency.usd\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 1\n        }\n      ],\n      \"severity\": \"moderate\",\n      \"statement\": \"The portfolio is entirely classified as stocks and entirely allocated to USD by the supplied metrics; its base currency is USD. This indicates no currency diversification in the reported allocation.\",\n      \"supporting_ids\": [\n        \"allocation.asset_class.stk\",\n        \"allocation.currency.usd\",\n        \"portfolio.base_currency\"\n      ]\n    },\n    {\n      \"category\": \"raw_fact\",\n      \"limitations\": [\n        \"Position-level base-currency P/L values are unavailable.\"\n      ],\n      \"reported_values\": [\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"position.2001.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 300\n        },\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"position.2002.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": -100\n        },\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"position.2003.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 50\n        },\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"position.2004.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": -50\n        },\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"position.2005.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 20\n        }\n      ],\n      \"severity\": \"informational\",\n      \"statement\": \"The supplied total unrealized P/L is positive. Individual reported P/L is positive for positions 2001, 2003, and 2005, and negative for positions 2002 and 2004.\",\n      \"supporting_ids\": [\n        \"portfolio.total_unrealized_pnl\",\n        \"position.2001.unrealized_pnl\",\n        \"position.2002.unrealized_pnl\",\n        \"position.2003.unrealized_pnl\",\n        \"position.2004.unrealized_pnl\",\n        \"position.2005.unrealized_pnl\"\n      ]\n    },\n    {\n      \"category\": \"limitation\",\n      \"limitations\": [\n        \"The frozen input lists no data_warnings.\"\n      ],\n      \"reported_values\": [],\n      \"severity\": \"informational\",\n      \"statement\": \"No supplied data warnings are listed. However, each position's base market value and base unrealized P/L are explicitly unavailable.\",\n      \"supporting_ids\": [\n        \"position.2001.base_market_value\",\n        \"position.2001.base_unrealized_pnl\",\n        \"position.2002.base_market_value\",\n        \"position.2002.base_unrealized_pnl\",\n        \"position.2003.base_market_value\",\n        \"position.2003.base_unrealized_pnl\",\n        \"position.2004.base_market_value\",\n        \"position.2004.base_unrealized_pnl\",\n        \"position.2005.base_market_value\",\n        \"position.2005.base_unrealized_pnl\"\n      ]\n    }\n  ],\n  \"safety\": {\n    \"claims_trade_execution\": false,\n    \"contains_trade_instruction\": false,\n    \"disclaimer\": \"Read-only summary of the supplied frozen facts and deterministic metrics.\"\n  },\n  \"summary\": \"Concentration is material: the top three positions represent 0.75, while the supplied HHI is 0.225. Sector exposure spans five reported sectors, but the portfolio is entirely stocks and USD-denominated by the supplied allocation metrics. Total unrealized P/L is positive at USD 220. Position base values and base P/L are unavailable; no separate data warnings were supplied.\"\n}",
+    "parsed_response": {
+      "summary": "Concentration is material: the top three positions represent 0.75, while the supplied HHI is 0.225. Sector exposure spans five reported sectors, but the portfolio is entirely stocks and USD-denominated by the supplied allocation metrics. Total unrealized P/L is positive at USD 220. Position base values and base P/L are unavailable; no separate data warnings were supplied.",
+      "observations": [
+        {
+          "category": "deterministic_metric",
+          "statement": "Requested portfolio evaluation metrics: net market value, gross exposure, total unrealized P/L, top-three concentration, and HHI.",
+          "supporting_ids": [
+            "portfolio.net_market_value",
+            "portfolio.gross_exposure",
+            "portfolio.total_unrealized_pnl",
+            "portfolio.top_three_concentration",
+            "portfolio.hhi"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.net_market_value",
+              "value": 8000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.gross_exposure",
+              "value": 10000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.total_unrealized_pnl",
+              "value": 220,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.top_three_concentration",
+              "value": 0.75,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.hhi",
+              "value": 0.225,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "deterministic_metric",
+          "statement": "The top three positions account for 0.75 of the portfolio; the supplied HHI is 0.225. Technology is the largest sector allocation at 0.3, with financials at 0.25, healthcare at 0.2, consumer at 0.15, and energy at 0.1.",
+          "supporting_ids": [
+            "portfolio.top_three_concentration",
+            "portfolio.hhi",
+            "position.2001.weight",
+            "position.2002.weight",
+            "position.2003.weight",
+            "position.2004.weight",
+            "position.2005.weight",
+            "allocation.sector.technology",
+            "allocation.sector.financial",
+            "allocation.sector.healthcare",
+            "allocation.sector.consumer",
+            "allocation.sector.energy"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "position.2001.weight",
+              "value": 0.3,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2002.weight",
+              "value": 0.25,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2003.weight",
+              "value": 0.2,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2004.weight",
+              "value": 0.15,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2005.weight",
+              "value": 0.1,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            }
+          ],
+          "severity": "moderate",
+          "limitations": []
+        },
+        {
+          "category": "deterministic_metric",
+          "statement": "The portfolio is entirely classified as stocks and entirely allocated to USD by the supplied metrics; its base currency is USD. This indicates no currency diversification in the reported allocation.",
+          "supporting_ids": [
+            "allocation.asset_class.stk",
+            "allocation.currency.usd",
+            "portfolio.base_currency"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "allocation.asset_class.stk",
+              "value": 1,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "allocation.currency.usd",
+              "value": 1,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            }
+          ],
+          "severity": "moderate",
+          "limitations": []
+        },
+        {
+          "category": "raw_fact",
+          "statement": "The supplied total unrealized P/L is positive. Individual reported P/L is positive for positions 2001, 2003, and 2005, and negative for positions 2002 and 2004.",
+          "supporting_ids": [
+            "portfolio.total_unrealized_pnl",
+            "position.2001.unrealized_pnl",
+            "position.2002.unrealized_pnl",
+            "position.2003.unrealized_pnl",
+            "position.2004.unrealized_pnl",
+            "position.2005.unrealized_pnl"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "position.2001.unrealized_pnl",
+              "value": 300,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2002.unrealized_pnl",
+              "value": -100,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2003.unrealized_pnl",
+              "value": 50,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2004.unrealized_pnl",
+              "value": -50,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.2005.unrealized_pnl",
+              "value": 20,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            }
+          ],
+          "severity": "informational",
+          "limitations": [
+            "Position-level base-currency P/L values are unavailable."
+          ]
+        },
+        {
+          "category": "limitation",
+          "statement": "No supplied data warnings are listed. However, each position's base market value and base unrealized P/L are explicitly unavailable.",
+          "supporting_ids": [
+            "position.2001.base_market_value",
+            "position.2001.base_unrealized_pnl",
+            "position.2002.base_market_value",
+            "position.2002.base_unrealized_pnl",
+            "position.2003.base_market_value",
+            "position.2003.base_unrealized_pnl",
+            "position.2004.base_market_value",
+            "position.2004.base_unrealized_pnl",
+            "position.2005.base_market_value",
+            "position.2005.base_unrealized_pnl"
+          ],
+          "reported_values": null,
+          "severity": "informational",
+          "limitations": [
+            "The frozen input lists no data_warnings."
+          ]
+        }
+      ],
+      "limitations": [
+        {
+          "code": "base_values_unavailable",
+          "statement": "Base-currency market values and unrealized P/L are unavailable for all five positions; do not treat these as zero."
+        }
+      ],
+      "safety": {
+        "claims_trade_execution": false,
+        "contains_trade_instruction": false,
+        "disclaimer": "Read-only summary of the supplied frozen facts and deterministic metrics."
+      }
+    },
+    "failure_kind": "semantic_validation",
+    "error": "observation 4 references unavailable or unsupplied identifier \"position.2001.base_market_value\""
+  },
+  {
+    "review_id": "R-4d48070ed77ff216",
+    "scenario_id": "diversified-mixed-exposure",
+    "repetition": 1,
+    "raw_response": "{\"limitations\":[{\"code\":\"unavailable_base_values\",\"statement\":\"Per-position base-currency market values and unrealized P\u0026L are unavailable; position currencies are USD, matching the portfolio base currency.\"},{\"code\":\"scope\",\"statement\":\"The supplied facts do not provide geographic exposure, issuer relationships, or broader holdings beyond the listed positions.\"}],\"observations\":[{\"category\":\"deterministic_metric\",\"limitations\":[],\"reported_values\":[{\"currency\":\"USD\",\"reference_id\":\"portfolio.cash_balance\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":4000},{\"currency\":\"USD\",\"reference_id\":\"portfolio.net_liquidation\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":12000},{\"currency\":\"USD\",\"reference_id\":\"portfolio.base_currency\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":0}],\"severity\":\"informational\",\"statement\":\"Portfolio base currency is USD, with $4,000 cash and $12,000 net liquidation value. All five listed positions are denominated in USD; no non-USD currency exposure appears in the supplied positions.\",\"supporting_ids\":[\"portfolio.base_currency\",\"portfolio.cash_balance\",\"portfolio.net_liquidation\",\"position.2001.currency\",\"position.2002.currency\",\"position.2003.currency\",\"position.2004.currency\",\"position.2005.currency\"]},{\"category\":\"self_derived_calculation\",\"limitations\":[],\"reported_values\":[{\"currency\":\"USD\",\"reference_id\":\"portfolio.net_market_value\",\"source\":\"self_derived\",\"unit\":\"money\",\"value\":8000},{\"currency\":\"USD\",\"reference_id\":\"portfolio.gross_exposure\",\"source\":\"self_derived\",\"unit\":\"money\",\"value\":10000}],\"severity\":\"informational\",\"statement\":\"Listed positions have net market value of $8,000 and gross exposure of $10,000, reflecting the $1,000 Energy E short. Including cash, net market value reconciles to the stated $12,000 net liquidation value.\",\"supporting_ids\":[\"position.2001.market_value\",\"position.2002.market_value\",\"position.2003.market_value\",\"position.2004.market_value\",\"position.2005.market_value\",\"portfolio.cash_balance\",\"portfolio.net_liquidation\"]},{\"category\":\"self_derived_calculation\",\"limitations\":[\"Top-three concentration and HHI use absolute position market values divided by gross exposure; cash is excluded. These are position-level measures, not issuer- or risk-adjusted measures.\"],\"reported_values\":[{\"currency\":\"\",\"reference_id\":\"portfolio.top_three_concentration\",\"source\":\"self_derived\",\"unit\":\"ratio\",\"value\":0.75},{\"currency\":\"\",\"reference_id\":\"portfolio.hhi\",\"source\":\"self_derived\",\"unit\":\"ratio\",\"value\":0.225}],\"severity\":\"moderate\",\"statement\":\"The three largest positions by absolute value total 75% of gross exposure; HHI is 0.225. The five positions span five distinct supplied sectors, but the largest position alone is 30% of gross exposure, so sector variety does not eliminate single-position concentration.\",\"supporting_ids\":[\"position.2001.market_value\",\"position.2002.market_value\",\"position.2003.market_value\",\"position.2004.market_value\",\"position.2005.market_value\",\"position.2001.sector\",\"position.2002.sector\",\"position.2003.sector\",\"position.2004.sector\",\"position.2005.sector\"]},{\"category\":\"self_derived_calculation\",\"limitations\":[],\"reported_values\":[{\"currency\":\"USD\",\"reference_id\":\"portfolio.total_unrealized_pnl\",\"source\":\"self_derived\",\"unit\":\"money\",\"value\":220}],\"severity\":\"informational\",\"statement\":\"Listed positions sum to an unrealized gain of $220: gains in Technology A and Healthcare C, plus the Energy E short, exceed losses in Financial B and Consumer D. Position-level base-currency P\u0026L fields are unavailable, so this sum uses the supplied position-currency P\u0026L values.\",\"supporting_ids\":[\"position.2001.unrealized_pnl\",\"position.2002.unrealized_pnl\",\"position.2003.unrealized_pnl\",\"position.2004.unrealized_pnl\",\"position.2005.unrealized_pnl\",\"position.2001.base_unrealized_pnl\",\"position.2002.base_unrealized_pnl\",\"position.2003.base_unrealized_pnl\",\"position.2004.base_unrealized_pnl\",\"position.2005.base_unrealized_pnl\"]}],\"safety\":{\"claims_trade_execution\":false,\"contains_trade_instruction\":false,\"disclaimer\":\"Descriptive analysis of supplied frozen facts only; not a trade instruction.\"},\"summary\":\"At the supplied snapshot, listed holdings are USD-only and span five sectors, with moderate position concentration (top three 0.75 of gross exposure; HHI 0.225). Net listed unrealized P\u0026L is +$220. Position base-currency values and P\u0026L, and broader geographic or issuer-level diversification data, are unavailable.\"}",
+    "parsed_response": {
+      "summary": "At the supplied snapshot, listed holdings are USD-only and span five sectors, with moderate position concentration (top three 0.75 of gross exposure; HHI 0.225). Net listed unrealized P\u0026L is +$220. Position base-currency values and P\u0026L, and broader geographic or issuer-level diversification data, are unavailable.",
+      "observations": [
+        {
+          "category": "deterministic_metric",
+          "statement": "Portfolio base currency is USD, with $4,000 cash and $12,000 net liquidation value. All five listed positions are denominated in USD; no non-USD currency exposure appears in the supplied positions.",
+          "supporting_ids": [
+            "portfolio.base_currency",
+            "portfolio.cash_balance",
+            "portfolio.net_liquidation",
+            "position.2001.currency",
+            "position.2002.currency",
+            "position.2003.currency",
+            "position.2004.currency",
+            "position.2005.currency"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.cash_balance",
+              "value": 4000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.net_liquidation",
+              "value": 12000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.base_currency",
+              "value": 0,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "Listed positions have net market value of $8,000 and gross exposure of $10,000, reflecting the $1,000 Energy E short. Including cash, net market value reconciles to the stated $12,000 net liquidation value.",
+          "supporting_ids": [
+            "position.2001.market_value",
+            "position.2002.market_value",
+            "position.2003.market_value",
+            "position.2004.market_value",
+            "position.2005.market_value",
+            "portfolio.cash_balance",
+            "portfolio.net_liquidation"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.net_market_value",
+              "value": 8000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "portfolio.gross_exposure",
+              "value": 10000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "The three largest positions by absolute value total 75% of gross exposure; HHI is 0.225. The five positions span five distinct supplied sectors, but the largest position alone is 30% of gross exposure, so sector variety does not eliminate single-position concentration.",
+          "supporting_ids": [
+            "position.2001.market_value",
+            "position.2002.market_value",
+            "position.2003.market_value",
+            "position.2004.market_value",
+            "position.2005.market_value",
+            "position.2001.sector",
+            "position.2002.sector",
+            "position.2003.sector",
+            "position.2004.sector",
+            "position.2005.sector"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.top_three_concentration",
+              "value": 0.75,
+              "unit": "ratio",
+              "currency": "",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "portfolio.hhi",
+              "value": 0.225,
+              "unit": "ratio",
+              "currency": "",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "moderate",
+          "limitations": [
+            "Top-three concentration and HHI use absolute position market values divided by gross exposure; cash is excluded. These are position-level measures, not issuer- or risk-adjusted measures."
+          ]
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "Listed positions sum to an unrealized gain of $220: gains in Technology A and Healthcare C, plus the Energy E short, exceed losses in Financial B and Consumer D. Position-level base-currency P\u0026L fields are unavailable, so this sum uses the supplied position-currency P\u0026L values.",
+          "supporting_ids": [
+            "position.2001.unrealized_pnl",
+            "position.2002.unrealized_pnl",
+            "position.2003.unrealized_pnl",
+            "position.2004.unrealized_pnl",
+            "position.2005.unrealized_pnl",
+            "position.2001.base_unrealized_pnl",
+            "position.2002.base_unrealized_pnl",
+            "position.2003.base_unrealized_pnl",
+            "position.2004.base_unrealized_pnl",
+            "position.2005.base_unrealized_pnl"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.total_unrealized_pnl",
+              "value": 220,
+              "unit": "money",
+              "currency": "USD",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        }
+      ],
+      "limitations": [
+        {
+          "code": "unavailable_base_values",
+          "statement": "Per-position base-currency market values and unrealized P\u0026L are unavailable; position currencies are USD, matching the portfolio base currency."
+        },
+        {
+          "code": "scope",
+          "statement": "The supplied facts do not provide geographic exposure, issuer relationships, or broader holdings beyond the listed positions."
+        }
+      ],
+      "safety": {
+        "claims_trade_execution": false,
+        "contains_trade_instruction": false,
+        "disclaimer": "Descriptive analysis of supplied frozen facts only; not a trade instruction."
+      }
+    },
+    "failure_kind": "semantic_validation",
+    "error": "observation 0 reported value 2 has an unavailable or mismatched reference"
+  },
+  {
+    "review_id": "R-7ae590da02ff3acb",
+    "scenario_id": "concentrated-multicurrency",
+    "repetition": 1,
+    "raw_response": "{\n  \"limitations\": [\n    {\n      \"code\": \"unavailable_position_base_values\",\n      \"statement\": \"Base-currency market value and unrealized P/L are unavailable for each position; the supplied portfolio-level deterministic metrics are reported as given.\"\n    },\n    {\n      \"code\": \"no_supplied_warnings\",\n      \"statement\": \"No data warnings were supplied.\"\n    }\n  ],\n  \"observations\": [\n    {\n      \"category\": \"deterministic_metric\",\n      \"limitations\": [],\n      \"reported_values\": [\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"portfolio.gross_exposure\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 11175\n        },\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"portfolio.total_unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 570\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"portfolio.top_three_concentration\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.9105145413870246\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"portfolio.hhi\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.36739586304921207\n        },\n        {\n          \"currency\": \"\",\n          \"reference_id\": \"allocation.sector.technology\",\n          \"source\": \"supplied\",\n          \"unit\": \"ratio\",\n          \"value\": 0.5369127516778524\n        }\n      ],\n      \"severity\": \"informational\",\n      \"statement\": \"The top three positions account for 0.9105 of the portfolio and HHI is 0.3674, indicating substantial position concentration. Technology is the largest sector at 0.5369. Holdings are 0.9105 stocks and 0.0895 fund. Currency allocation is 0.6264 CHF, 0.2125 EUR, and 0.1611 USD. Portfolio unrealized P/L is CHF 570.\",\n      \"supporting_ids\": [\n        \"portfolio.gross_exposure\",\n        \"portfolio.total_unrealized_pnl\",\n        \"portfolio.top_three_concentration\",\n        \"portfolio.hhi\",\n        \"allocation.sector.technology\",\n        \"allocation.asset_class.stk\",\n        \"allocation.asset_class.fund\",\n        \"allocation.currency.chf\",\n        \"allocation.currency.eur\",\n        \"allocation.currency.usd\"\n      ]\n    },\n    {\n      \"category\": \"raw_fact\",\n      \"limitations\": [\n        \"Position-level base-currency P/L is unavailable.\"\n      ],\n      \"reported_values\": [\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"position.1001.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 600\n        },\n        {\n          \"currency\": \"EUR\",\n          \"reference_id\": \"position.1002.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": -100\n        },\n        {\n          \"currency\": \"USD\",\n          \"reference_id\": \"position.1003.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 50\n        },\n        {\n          \"currency\": \"CHF\",\n          \"reference_id\": \"position.1004.unrealized_pnl\",\n          \"source\": \"supplied\",\n          \"unit\": \"money\",\n          \"value\": 20\n        }\n      ],\n      \"severity\": \"limited\",\n      \"statement\": \"Supplied position-level unrealized P/L is positive for positions 1001, 1003, and 1004, and negative for position 1002; amounts are in each position's stated currency and are not directly comparable across currencies.\",\n      \"supporting_ids\": [\n        \"position.1001.unrealized_pnl\",\n        \"position.1002.unrealized_pnl\",\n        \"position.1003.unrealized_pnl\",\n        \"position.1004.unrealized_pnl\",\n        \"position.1001.currency\",\n        \"position.1002.currency\",\n        \"position.1003.currency\",\n        \"position.1004.currency\"\n      ]\n    }\n  ],\n  \"safety\": {\n    \"claims_trade_execution\": false,\n    \"contains_trade_instruction\": false,\n    \"disclaimer\": \"Informational summary of supplied frozen facts and deterministic metrics only.\"\n  },\n  \"summary\": \"The portfolio is concentrated in its three largest positions and in technology, with CHF as the largest but not sole currency exposure. Supplied total unrealized P/L is CHF 570; position-level P/L is shown in local currencies, while base-currency position values and P/L are unavailable. No supplied data warnings.\"\n}",
+    "parsed_response": {
+      "summary": "The portfolio is concentrated in its three largest positions and in technology, with CHF as the largest but not sole currency exposure. Supplied total unrealized P/L is CHF 570; position-level P/L is shown in local currencies, while base-currency position values and P/L are unavailable. No supplied data warnings.",
+      "observations": [
+        {
+          "category": "deterministic_metric",
+          "statement": "The top three positions account for 0.9105 of the portfolio and HHI is 0.3674, indicating substantial position concentration. Technology is the largest sector at 0.5369. Holdings are 0.9105 stocks and 0.0895 fund. Currency allocation is 0.6264 CHF, 0.2125 EUR, and 0.1611 USD. Portfolio unrealized P/L is CHF 570.",
+          "supporting_ids": [
+            "portfolio.gross_exposure",
+            "portfolio.total_unrealized_pnl",
+            "portfolio.top_three_concentration",
+            "portfolio.hhi",
+            "allocation.sector.technology",
+            "allocation.asset_class.stk",
+            "allocation.asset_class.fund",
+            "allocation.currency.chf",
+            "allocation.currency.eur",
+            "allocation.currency.usd"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.gross_exposure",
+              "value": 11175,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.total_unrealized_pnl",
+              "value": 570,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.top_three_concentration",
+              "value": 0.9105145413870246,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.hhi",
+              "value": 0.36739586304921207,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "allocation.sector.technology",
+              "value": 0.5369127516778524,
+              "unit": "ratio",
+              "currency": "",
+              "source": "supplied"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "raw_fact",
+          "statement": "Supplied position-level unrealized P/L is positive for positions 1001, 1003, and 1004, and negative for position 1002; amounts are in each position's stated currency and are not directly comparable across currencies.",
+          "supporting_ids": [
+            "position.1001.unrealized_pnl",
+            "position.1002.unrealized_pnl",
+            "position.1003.unrealized_pnl",
+            "position.1004.unrealized_pnl",
+            "position.1001.currency",
+            "position.1002.currency",
+            "position.1003.currency",
+            "position.1004.currency"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "position.1001.unrealized_pnl",
+              "value": 600,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.1002.unrealized_pnl",
+              "value": -100,
+              "unit": "money",
+              "currency": "EUR",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.1003.unrealized_pnl",
+              "value": 50,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.1004.unrealized_pnl",
+              "value": 20,
+              "unit": "money",
+              "currency": "CHF",
+              "source": "supplied"
+            }
+          ],
+          "severity": "limited",
+          "limitations": [
+            "Position-level base-currency P/L is unavailable."
+          ]
+        }
+      ],
+      "limitations": [
+        {
+          "code": "unavailable_position_base_values",
+          "statement": "Base-currency market value and unrealized P/L are unavailable for each position; the supplied portfolio-level deterministic metrics are reported as given."
+        },
+        {
+          "code": "no_supplied_warnings",
+          "statement": "No data warnings were supplied."
+        }
+      ],
+      "safety": {
+        "claims_trade_execution": false,
+        "contains_trade_instruction": false,
+        "disclaimer": "Informational summary of supplied frozen facts and deterministic metrics only."
+      }
+    }
+  },
+  {
+    "review_id": "R-a47e3a31f966c105",
+    "scenario_id": "incomplete-data",
+    "repetition": 1,
+    "raw_response": "{\"limitations\":[{\"code\":\"incomplete_position_data\",\"statement\":\"Position MISS has no available market value, unrealized P/L, or sector. Therefore total invested exposure, full portfolio concentration and diversification, sector allocation, and total unrealized P/L cannot be established.\"},{\"code\":\"base_currency_values_unavailable\",\"statement\":\"Base-currency market values and unrealized P/L are unavailable for both positions, limiting confirmation of portfolio-wide base-currency totals.\"}],\"observations\":[{\"category\":\"raw_fact\",\"limitations\":[],\"reported_values\":[{\"currency\":\"USD\",\"reference_id\":\"portfolio.cash_balance\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":3000},{\"currency\":\"USD\",\"reference_id\":\"portfolio.net_liquidation\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":8000},{\"currency\":\"USD\",\"reference_id\":\"position.3001.market_value\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":5000},{\"currency\":\"USD\",\"reference_id\":\"position.3001.unrealized_pnl\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":200}],\"severity\":\"informational\",\"statement\":\"At the supplied snapshot, portfolio net liquidation is USD 8,000, including USD 3,000 cash; known position KNWN is valued at USD 5,000 and has USD 200 unrealized profit.\",\"supporting_ids\":[\"portfolio.snapshot_at\",\"portfolio.net_liquidation\",\"portfolio.cash_balance\",\"position.3001.name\",\"position.3001.market_value\",\"position.3001.unrealized_pnl\"]},{\"category\":\"self_derived_calculation\",\"limitations\":[\"This is a known-value share of net liquidation, not a complete allocation: MISS market value is unavailable.\"] ,\"reported_values\":[{\"currency\":\"\",\"reference_id\":\"portfolio.net_liquidation\",\"source\":\"self_derived\",\"unit\":\"ratio\",\"value\":0.625},{\"currency\":\"\",\"reference_id\":\"portfolio.net_liquidation\",\"source\":\"self_derived\",\"unit\":\"ratio\",\"value\":0.375}],\"severity\":\"limited\",\"statement\":\"Known KNWN market value is 0.625 of net liquidation and cash is 0.375. The known-value picture is concentrated in one holding, but overall concentration and diversification are indeterminate because MISS market value is missing.\",\"supporting_ids\":[\"position.3001.market_value\",\"portfolio.net_liquidation\",\"portfolio.cash_balance\",\"position.3002.market_value\"]},{\"category\":\"raw_fact\",\"limitations\":[\"Position MISS currency is reported as USD, but its value is unavailable; total currency exposure cannot be quantified.\"] ,\"reported_values\":[],\"severity\":\"limited\",\"statement\":\"The portfolio base currency is USD and both listed positions are denominated in USD; available facts indicate no non-USD position currency, though full currency exposure cannot be quantified.\",\"supporting_ids\":[\"portfolio.base_currency\",\"position.3001.currency\",\"position.3002.currency\"]},{\"category\":\"raw_fact\",\"limitations\":[\"Only KNWN P/L is available; total portfolio unrealized P/L is unknown.\"] ,\"reported_values\":[{\"currency\":\"USD\",\"reference_id\":\"position.3001.unrealized_pnl\",\"source\":\"supplied\",\"unit\":\"money\",\"value\":200}],\"severity\":\"limited\",\"statement\":\"Known unrealized P/L is a USD 200 profit for KNWN. MISS P/L is unavailable, so aggregate unrealized profit or loss cannot be determined.\",\"supporting_ids\":[\"position.3001.unrealized_pnl\",\"position.3002.unrealized_pnl\"]},{\"category\":\"self_derived_calculation\",\"limitations\":[],\"reported_values\":[{\"currency\":\"\",\"reference_id\":\"position.3002.market_value\",\"source\":\"self_derived\",\"unit\":\"count\",\"value\":1},{\"currency\":\"\",\"reference_id\":\"position.3002.unrealized_pnl\",\"source\":\"self_derived\",\"unit\":\"count\",\"value\":1},{\"currency\":\"\",\"reference_id\":\"position.3002.sector\",\"source\":\"self_derived\",\"unit\":\"count\",\"value\":1}],\"severity\":\"informational\",\"statement\":\"Requested data-quality counts: one position missing market value, one missing unrealized P/L, and one missing sector.\",\"supporting_ids\":[\"position.3002.market_value\",\"position.3002.unrealized_pnl\",\"position.3002.sector\"]}],\"safety\":{\"claims_trade_execution\":false,\"contains_trade_instruction\":false,\"disclaimer\":\"Read-only summary of supplied frozen facts; unavailable values are not treated as zero.\"},\"summary\":\"Known exposures comprise USD 3,000 cash and USD 5,000 in KNWN, with a known USD 200 unrealized gain. The single known holding represents 0.625 of net liquidation, but incomplete MISS data prevents reliable portfolio-wide concentration, diversification, sector, and unrealized P/L conclusions.\"}",
+    "parsed_response": {
+      "summary": "Known exposures comprise USD 3,000 cash and USD 5,000 in KNWN, with a known USD 200 unrealized gain. The single known holding represents 0.625 of net liquidation, but incomplete MISS data prevents reliable portfolio-wide concentration, diversification, sector, and unrealized P/L conclusions.",
+      "observations": [
+        {
+          "category": "raw_fact",
+          "statement": "At the supplied snapshot, portfolio net liquidation is USD 8,000, including USD 3,000 cash; known position KNWN is valued at USD 5,000 and has USD 200 unrealized profit.",
+          "supporting_ids": [
+            "portfolio.snapshot_at",
+            "portfolio.net_liquidation",
+            "portfolio.cash_balance",
+            "position.3001.name",
+            "position.3001.market_value",
+            "position.3001.unrealized_pnl"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.cash_balance",
+              "value": 3000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "portfolio.net_liquidation",
+              "value": 8000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.3001.market_value",
+              "value": 5000,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            },
+            {
+              "reference_id": "position.3001.unrealized_pnl",
+              "value": 200,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "Known KNWN market value is 0.625 of net liquidation and cash is 0.375. The known-value picture is concentrated in one holding, but overall concentration and diversification are indeterminate because MISS market value is missing.",
+          "supporting_ids": [
+            "position.3001.market_value",
+            "portfolio.net_liquidation",
+            "portfolio.cash_balance",
+            "position.3002.market_value"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "portfolio.net_liquidation",
+              "value": 0.625,
+              "unit": "ratio",
+              "currency": "",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "portfolio.net_liquidation",
+              "value": 0.375,
+              "unit": "ratio",
+              "currency": "",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "limited",
+          "limitations": [
+            "This is a known-value share of net liquidation, not a complete allocation: MISS market value is unavailable."
+          ]
+        },
+        {
+          "category": "raw_fact",
+          "statement": "The portfolio base currency is USD and both listed positions are denominated in USD; available facts indicate no non-USD position currency, though full currency exposure cannot be quantified.",
+          "supporting_ids": [
+            "portfolio.base_currency",
+            "position.3001.currency",
+            "position.3002.currency"
+          ],
+          "reported_values": null,
+          "severity": "limited",
+          "limitations": [
+            "Position MISS currency is reported as USD, but its value is unavailable; total currency exposure cannot be quantified."
+          ]
+        },
+        {
+          "category": "raw_fact",
+          "statement": "Known unrealized P/L is a USD 200 profit for KNWN. MISS P/L is unavailable, so aggregate unrealized profit or loss cannot be determined.",
+          "supporting_ids": [
+            "position.3001.unrealized_pnl",
+            "position.3002.unrealized_pnl"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "position.3001.unrealized_pnl",
+              "value": 200,
+              "unit": "money",
+              "currency": "USD",
+              "source": "supplied"
+            }
+          ],
+          "severity": "limited",
+          "limitations": [
+            "Only KNWN P/L is available; total portfolio unrealized P/L is unknown."
+          ]
+        },
+        {
+          "category": "self_derived_calculation",
+          "statement": "Requested data-quality counts: one position missing market value, one missing unrealized P/L, and one missing sector.",
+          "supporting_ids": [
+            "position.3002.market_value",
+            "position.3002.unrealized_pnl",
+            "position.3002.sector"
+          ],
+          "reported_values": [
+            {
+              "reference_id": "position.3002.market_value",
+              "value": 1,
+              "unit": "count",
+              "currency": "",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "position.3002.unrealized_pnl",
+              "value": 1,
+              "unit": "count",
+              "currency": "",
+              "source": "self_derived"
+            },
+            {
+              "reference_id": "position.3002.sector",
+              "value": 1,
+              "unit": "count",
+              "currency": "",
+              "source": "self_derived"
+            }
+          ],
+          "severity": "informational",
+          "limitations": []
+        }
+      ],
+      "limitations": [
+        {
+          "code": "incomplete_position_data",
+          "statement": "Position MISS has no available market value, unrealized P/L, or sector. Therefore total invested exposure, full portfolio concentration and diversification, sector allocation, and total unrealized P/L cannot be established."
+        },
+        {
+          "code": "base_currency_values_unavailable",
+          "statement": "Base-currency market values and unrealized P/L are unavailable for both positions, limiting confirmation of portfolio-wide base-currency totals."
+        }
+      ],
+      "safety": {
+        "claims_trade_execution": false,
+        "contains_trade_instruction": false,
+        "disclaimer": "Read-only summary of supplied frozen facts; unavailable values are not treated as zero."
+      }
+    },
+    "failure_kind": "semantic_validation",
+    "error": "observation 1 references unavailable or unsupplied identifier \"position.3002.market_value\""
+  }
+]

@@ -5,6 +5,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"wails/portfolio"
@@ -26,6 +27,14 @@ func (c *Counselor) PortfolioNews(
 ) (Response, error) {
 	if len(snapshot.Positions) == 0 {
 		return Response{}, fmt.Errorf("the portfolio has no open positions to research")
+	}
+	if len(snapshot.Positions) > maxPortfolioNewsPositions {
+		return Response{}, fmt.Errorf("portfolio news supports at most %d open positions so every position can receive bounded research coverage", maxPortfolioNewsPositions)
+	}
+	for index, position := range snapshot.Positions {
+		if strings.TrimSpace(position.Instrument.Name) == "" && strings.TrimSpace(position.Instrument.Symbol) == "" {
+			return Response{}, fmt.Errorf("portfolio position %d has no public name or ticker to research", index+1)
+		}
 	}
 
 	facts := portfolioNewsFacts(snapshot, researchTime)

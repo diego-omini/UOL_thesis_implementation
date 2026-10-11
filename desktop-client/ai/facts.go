@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,11 +18,13 @@ import (
 )
 
 const (
-	moneyAbsoluteTolerance   = 0.01
-	percentAbsoluteTolerance = 0.05
-	ratioAbsoluteTolerance   = 0.0005
-	quantityTolerance        = 0.000000001
-	defaultRelativeTolerance = 0.000001
+	moneyAbsoluteTolerance      = 0.01
+	percentAbsoluteTolerance    = 0.05
+	ratioAbsoluteTolerance      = 0.0005
+	quantityTolerance           = 0.000000001
+	defaultRelativeTolerance    = 0.000001
+	maxPortfolioResumePositions = 12
+	maxPortfolioNewsPositions   = 12
 )
 
 var factIDCharacters = regexp.MustCompile(`[^a-z0-9]+`)
@@ -30,14 +33,16 @@ var factIDCharacters = regexp.MustCompile(`[^a-z0-9]+`)
 func portfolioResumeFacts(snapshot portfolio.Portfolio, result analytics.Result) []CounselorFact {
 	facts := []CounselorFact{
 		textFact("portfolio.analysis_timestamp", CategorySuppliedFact, "Analysis timestamp", result.CalculatedAt.UTC().Format(time.RFC3339)),
-		textFact("portfolio.base_currency", CategoryDeterministicDerivedFact, "Account base currency", result.BaseCurrency),
+		textFact("portfolio.base_currency", CategorySuppliedFact, "Account base currency", result.BaseCurrency),
 		moneyFact(analytics.MetricNetMarketValue, "Net position market value", result.NetMarketValue),
 		moneyFact(analytics.MetricGrossExposure, "Gross position exposure", result.GrossExposure),
 		moneyFact(analytics.MetricTotalUnrealizedPnL, "Total unrealized profit or loss", result.TotalUnrealizedPnL),
 		ratioFact(analytics.MetricTopThreeConcentration, "Top-three position concentration", result.TopThreeConcentration, "percent"),
 		ratioFact(analytics.MetricHHI, "Herfindahl-Hirschman concentration index", result.HHI, "hhi_index"),
 	}
-	for index, position := range snapshot.Positions {
+	positions, indices, truncated := boundedPortfolioPositions(snapshot, result, maxPortfolioResumePositions)
+	for selectedIndex, position := range positions {
+		index := indices[selectedIndex]
 		prefix := positionFactPrefix(position.Instrument, index)
 		facts = append(facts,
 			textFact(prefix+".symbol", CategorySuppliedFact, "Position ticker", position.Instrument.Symbol),
@@ -53,11 +58,20 @@ func portfolioResumeFacts(snapshot portfolio.Portfolio, result analytics.Result)
 			facts = append(facts, unavailableFact(prefix+".weight", "Position gross-exposure weight", "percent", "The deterministic position weight was not supplied."))
 		}
 	}
-	facts = append(facts, allocationFacts("allocation.sector", "Sector allocation", result.SectorAllocation)...)
-	facts = append(facts, allocationFacts("allocation.asset_class", "Asset-class allocation", result.AssetClassAllocation)...)
-	facts = append(facts, allocationFacts("allocation.currency", "Currency allocation", result.CurrencyAllocation)...)
-	facts = append(facts, effectiveExposureFacts(result)...)
-	facts = append(facts, fundLookThroughFacts(result.FundLookThrough)...)
+	if truncated {
+		facts = append(facts, CounselorFact{
+			ID: "warning.portfolio_resume.position_coverage", Kind: string(CategoryUnavailableInformation),
+			Label: "Position detail supplied to the counselor", Available: false,
+			TextValue:          fmt.Sprintf("largest %d of %d open positions by absolute gross-exposure weight", len(positions), len(snapshot.Positions)),
+			Limitation:         fmt.Sprintf("Detailed position facts were limited to the %d largest of %d open positions by absolute gross-exposure weight.", len(positions), len(snapshot.Positions)),
+			RequiredLimitation: true,
+		})
+	}
+	facts = append(facts, boundedAllocationFacts("allocation.sector", "Sector allocation", result.SectorAllocation, 12)...)
+	facts = append(facts, boundedAllocationFacts("allocation.asset_class", "Asset-class allocation", result.AssetClassAllocation, 12)...)
+	facts = append(facts, boundedAllocationFacts("allocation.currency", "Currency allocation", result.CurrencyAllocation, 12)...)
+	facts = append(facts, focusedEffectiveExposureFacts(result, 12)...)
+	facts = append(facts, fundLookThroughFacts(result.FundLookThrough, 12)...)
 	for _, warning := range result.Warnings {
 		facts = append(facts, CounselorFact{
 			ID: "warning." + stableFactSegment(warning.Code), Kind: string(CategoryUnavailableInformation),
@@ -68,13 +82,41 @@ func portfolioResumeFacts(snapshot portfolio.Portfolio, result analytics.Result)
 	return facts
 }
 
+func boundedPortfolioPositions(snapshot portfolio.Portfolio, result analytics.Result, limit int) ([]portfolio.Position, []int, bool) {
+	indices := make([]int, len(snapshot.Positions))
+	for index := range indices {
+		indices[index] = index
+	}
+	sort.SliceStable(indices, func(left, right int) bool {
+		leftWeight := 0.0
+		rightWeight := 0.0
+		if left < len(result.PositionWeights) && result.PositionWeights[left].Weight.Available {
+			leftWeight = math.Abs(result.PositionWeights[left].Weight.Value)
+		}
+		if right < len(result.PositionWeights) && result.PositionWeights[right].Weight.Available {
+			rightWeight = math.Abs(result.PositionWeights[right].Weight.Value)
+		}
+		return leftWeight > rightWeight
+	})
+	truncated := limit > 0 && len(indices) > limit
+	if truncated {
+		indices = indices[:limit]
+	}
+	positions := make([]portfolio.Position, 0, len(indices))
+	for _, index := range indices {
+		positions = append(positions, snapshot.Positions[index])
+	}
+	return positions, indices, truncated
+}
+
 // portfolioRiskFacts exposes calculated risk, contribution, correlation, and scenario values verbatim.
 func portfolioRiskFacts(result portfolioanalysis.Result) []CounselorFact {
 	const maxCorrelations = 12
+	const maxPositions = 12
 
 	facts := []CounselorFact{
 		textFact("risk.analysis_timestamp", CategorySuppliedFact, "Risk calculation timestamp", result.CalculatedAt.UTC().Format(time.RFC3339)),
-		textFact("risk.base_currency", CategoryDeterministicDerivedFact, "Account base currency", result.BaseCurrency),
+		textFact("risk.base_currency", CategorySuppliedFact, "Account base currency", result.BaseCurrency),
 		numberFact("risk.history_observations", CategoryDeterministicDerivedFact, "Common daily return observations", float64(result.Observations), "count", 0, 0),
 		numberFact("risk.included_positions", CategoryDeterministicDerivedFact, "Positions included in modeled risk", float64(result.IncludedPositionCount), "count", 0, 0),
 		numberFact("risk.total_positions", CategorySuppliedFact, "Total current positions", float64(result.TotalPositionCount), "count", 0, 0),
@@ -90,7 +132,25 @@ func portfolioRiskFacts(result portfolioanalysis.Result) []CounselorFact {
 			textFact("risk.period_end", CategoryDeterministicDerivedFact, "Modeled period end", result.PeriodEnd.UTC().Format(time.RFC3339)),
 		)
 	}
-	for index, position := range result.Positions {
+	positionIndices := make([]int, len(result.Positions))
+	for index := range positionIndices {
+		positionIndices[index] = index
+	}
+	sort.SliceStable(positionIndices, func(left, right int) bool {
+		return math.Abs(result.Positions[positionIndices[left]].SignedWeight) > math.Abs(result.Positions[positionIndices[right]].SignedWeight)
+	})
+	if len(positionIndices) > maxPositions {
+		positionIndices = positionIndices[:maxPositions]
+		facts = append(facts, CounselorFact{
+			ID: "warning.portfolio_risk.position_coverage", Kind: string(CategoryUnavailableInformation),
+			Label: "Modeled-risk position facts supplied to the counselor", Available: false,
+			TextValue:          fmt.Sprintf("largest %d of %d included modeled-risk positions by absolute signed weight", maxPositions, len(result.Positions)),
+			Limitation:         fmt.Sprintf("The explanation received only the %d largest of %d included modeled-risk positions by absolute signed weight.", maxPositions, len(result.Positions)),
+			RequiredLimitation: true,
+		})
+	}
+	for _, index := range positionIndices {
+		position := result.Positions[index]
 		prefix := positionFactPrefix(portfolio.Instrument{ContractID: position.ContractID, Symbol: position.Symbol}, index)
 		facts = append(facts,
 			textFact(prefix+".symbol", CategorySuppliedFact, "Position ticker", position.Symbol),
@@ -118,7 +178,7 @@ func portfolioRiskFacts(result portfolioanalysis.Result) []CounselorFact {
 	for _, scenario := range result.Scenarios {
 		prefix := "scenario." + stableFactSegment(scenario.ID)
 		facts = append(facts,
-			textFact(prefix+".description", CategorySuppliedFact, scenario.Name, scenario.Description),
+			textFact(prefix+".description", CategoryDeterministicDerivedFact, scenario.Name, scenario.Description),
 			moneyFact(prefix+".impact", scenario.Name+" estimated monetary impact", scenario.Impact),
 			portfolioRiskMetricFact(prefix+".impact_ratio", scenario.Name+" impact relative to net liquidation", scenario.ImpactRatio, "percent"),
 		)
@@ -133,29 +193,20 @@ func portfolioRiskFacts(result portfolioanalysis.Result) []CounselorFact {
 	return facts
 }
 
-func effectiveExposureFacts(result analytics.Result) []CounselorFact {
-	if result.EffectiveSecurityExposure == nil && result.EffectiveSectorAllocation == nil && result.FundLookThrough == nil {
-		return nil
-	}
-	facts := make([]CounselorFact, 0, len(result.EffectiveSecurityExposure)+len(result.EffectiveSectorAllocation)+1)
-	for _, exposure := range result.EffectiveSecurityExposure {
-		facts = append(facts, ratioFact(exposure.MetricID, "Effective security exposure for "+valueOrUnavailable(exposure.Name), exposure.Weight, "percent"))
-	}
-	facts = append(facts, allocationFacts(strings.TrimSuffix(analytics.MetricEffectiveSectorPrefix, "."), "Effective sector exposure", result.EffectiveSectorAllocation)...)
-	if result.EffectiveExposureComplete {
-		facts = append(facts, textFact("effective.data_quality", CategoryDeterministicDerivedFact, "Effective exposure data quality", "complete"))
-	} else {
+func fundLookThroughFacts(results []portfolio.FundHoldings, limit int) []CounselorFact {
+	facts := make([]CounselorFact, 0)
+	bounded := results
+	if limit > 0 && len(bounded) > limit {
+		bounded = bounded[:limit]
 		facts = append(facts, CounselorFact{
-			ID: "effective.data_quality", Kind: string(CategoryUnavailableInformation), Label: "Effective exposure data quality",
-			TextValue: "incomplete", Available: false, Limitation: "Effective look-through exposure is incomplete.", RequiredLimitation: true,
+			ID: "warning.fund_look_through.coverage", Kind: string(CategoryUnavailableInformation),
+			Label: "Fund look-through sources supplied to the counselor", Available: false,
+			TextValue:          fmt.Sprintf("first %d of %d fund look-through results", len(bounded), len(results)),
+			Limitation:         fmt.Sprintf("The explanation received only %d of %d fund look-through source records.", len(bounded), len(results)),
+			RequiredLimitation: true,
 		})
 	}
-	return facts
-}
-
-func fundLookThroughFacts(results []portfolio.FundHoldings) []CounselorFact {
-	facts := make([]CounselorFact, 0)
-	for index, result := range results {
+	for index, result := range bounded {
 		prefix := positionFactPrefix(result.Fund, index) + ".look_through"
 		if strings.TrimSpace(result.SourceType) != "" {
 			facts = append(facts, textFact(prefix+".source_type", CategorySuppliedFact, "Fund holdings source type", result.SourceType))
@@ -189,9 +240,18 @@ func portfolioNewsFacts(snapshot portfolio.Portfolio, researchTime time.Time) []
 	facts := []CounselorFact{textFact("research.timestamp", CategorySuppliedFact, "Research timestamp", researchTime.UTC().Format(time.RFC3339))}
 	for index, position := range snapshot.Positions {
 		prefix := positionFactPrefix(position.Instrument, index)
+		symbol := textFact(prefix+".symbol", CategorySuppliedFact, "Position ticker", position.Instrument.Symbol)
+		name := textFact(prefix+".name", CategorySuppliedFact, "Position name", position.Instrument.Name)
+		if symbol.Available {
+			symbol.RequiredObservation = true
+			symbol.ObservationOrder = index + 1
+		} else {
+			name.RequiredObservation = true
+			name.ObservationOrder = index + 1
+		}
 		facts = append(facts,
-			textFact(prefix+".symbol", CategorySuppliedFact, "Position ticker", position.Instrument.Symbol),
-			textFact(prefix+".name", CategorySuppliedFact, "Position name", position.Instrument.Name),
+			symbol,
+			name,
 			textFact(prefix+".asset_class", CategorySuppliedFact, "Position asset class", position.Instrument.AssetClass),
 		)
 	}
@@ -200,10 +260,17 @@ func portfolioNewsFacts(snapshot portfolio.Portfolio, researchTime time.Time) []
 
 func stockNewsFacts(instrument portfolio.Instrument, researchTime time.Time) []CounselorFact {
 	prefix := instrumentFactPrefix(instrument)
+	symbol := textFact(prefix+".symbol", CategorySuppliedFact, "Stock ticker", instrument.Symbol)
+	name := textFact(prefix+".name", CategorySuppliedFact, "Stock name", instrument.Name)
+	if symbol.Available {
+		symbol.RequiredObservation = true
+	} else {
+		name.RequiredObservation = true
+	}
 	return []CounselorFact{
 		textFact("research.timestamp", CategorySuppliedFact, "Research timestamp", researchTime.UTC().Format(time.RFC3339)),
-		textFact(prefix+".symbol", CategorySuppliedFact, "Stock ticker", instrument.Symbol),
-		textFact(prefix+".name", CategorySuppliedFact, "Stock name", instrument.Name),
+		symbol,
+		name,
 		textFact(prefix+".asset_class", CategorySuppliedFact, "Stock asset class", instrument.AssetClass),
 	}
 }
@@ -219,12 +286,12 @@ func orderAnalysisFacts(result stockanalysis.Result) []CounselorFact {
 		textFact(prefix+".currency", CategorySuppliedFact, "Trading currency", result.Instrument.Currency),
 		textFact("order.side", CategorySuppliedFact, "Proposed order side", result.Side),
 		numberFact("order.quantity", CategorySuppliedFact, "Proposed order quantity", result.Quantity, "shares", quantityTolerance, 0),
-		moneyFact("order.estimated_price", "Estimated executable price", result.EstimatedPrice),
+		moneyFactWithKind("order.estimated_price", CategorySuppliedFact, "Current executable quote used for the estimate", result.EstimatedPrice),
 		moneyFact("order.estimated_value", "Estimated order value excluding commission", result.EstimatedOrderValue),
 		moneyFact("order.base_value", "Estimated order value in account base currency", result.BaseOrderValue),
-		moneyFact("portfolio.cash_balance", "Available cash", result.CashBalance),
+		moneyFactWithKind("portfolio.cash_balance", CategorySuppliedFact, "Broker-reported available cash", result.CashBalance),
 		stockMetricFact("order.cash_usage", "Estimated cash usage", result.CashUsage, "percent"),
-		numberFact("position.current_quantity", CategoryDeterministicDerivedFact, "Current position quantity", result.CurrentQuantity, "shares", quantityTolerance, 0),
+		numberFact("position.current_quantity", CategorySuppliedFact, "Current position quantity", result.CurrentQuantity, "shares", quantityTolerance, 0),
 		numberFact("position.resulting_quantity", CategoryDeterministicDerivedFact, "Resulting position quantity", result.ResultingQuantity, "shares", quantityTolerance, 0),
 		stockMetricFact("position.current_weight", "Current portfolio weight", result.CurrentWeight, "percent"),
 		stockMetricFact("position.resulting_weight", "Resulting portfolio weight", result.ResultingWeight, "percent"),
@@ -265,6 +332,31 @@ func allocationFacts(prefix, label string, allocations []analytics.Allocation) [
 	return facts
 }
 
+func boundedAllocationFacts(prefix, label string, allocations []analytics.Allocation, limit int) []CounselorFact {
+	bounded := append([]analytics.Allocation(nil), allocations...)
+	sort.SliceStable(bounded, func(left, right int) bool {
+		if bounded[left].Weight.Available != bounded[right].Weight.Available {
+			return bounded[left].Weight.Available
+		}
+		return math.Abs(bounded[left].Weight.Value) > math.Abs(bounded[right].Weight.Value)
+	})
+	truncated := limit > 0 && len(bounded) > limit
+	if truncated {
+		bounded = bounded[:limit]
+	}
+	facts := allocationFacts(prefix, label, bounded)
+	if truncated {
+		facts = append(facts, CounselorFact{
+			ID: "warning." + stableFactSegment(prefix) + ".coverage", Kind: string(CategoryUnavailableInformation),
+			Label: label + " facts supplied to the counselor", Available: false,
+			TextValue:          fmt.Sprintf("largest %d of %d allocation entries", len(bounded), len(allocations)),
+			Limitation:         fmt.Sprintf("The explanation received only the %d largest of %d %s entries.", len(bounded), len(allocations), strings.ToLower(label)),
+			RequiredLimitation: true,
+		})
+	}
+	return facts
+}
+
 func textFact(id string, kind ObservationCategory, label, value string) CounselorFact {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -284,11 +376,27 @@ func numberFact(id string, kind ObservationCategory, label string, value float64
 	}
 }
 
+// PromptNumericValue renders a fact without scientific notation and with at most two decimal places.
+func (fact CounselorFact) PromptNumericValue() string {
+	if fact.NumericValue == nil {
+		return ""
+	}
+	value := *fact.NumericValue
+	if math.Abs(value) < 0.005 {
+		value = 0
+	}
+	return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(value, 'f', 2, 64), "0"), ".")
+}
+
 func moneyFact(id, label string, value portfolio.Money) CounselorFact {
+	return moneyFactWithKind(id, CategoryDeterministicDerivedFact, label, value)
+}
+
+func moneyFactWithKind(id string, kind ObservationCategory, label string, value portfolio.Money) CounselorFact {
 	if !value.Available || strings.TrimSpace(value.Currency) == "" {
 		return unavailableFact(id, label, strings.TrimSpace(value.Currency), label+" is unavailable.")
 	}
-	return numberFact(id, CategoryDeterministicDerivedFact, label, value.Amount, value.Currency, moneyAbsoluteTolerance, defaultRelativeTolerance)
+	return numberFact(id, kind, label, value.Amount, value.Currency, moneyAbsoluteTolerance, defaultRelativeTolerance)
 }
 
 func ratioFact(id, label string, value analytics.Ratio, unit string) CounselorFact {

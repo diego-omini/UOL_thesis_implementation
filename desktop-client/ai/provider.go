@@ -10,10 +10,11 @@ import (
 
 // GenerationSettings controls provider-independent model generation behavior.
 type GenerationSettings struct {
-	Temperature float64 `yaml:"temperature" json:"temperature"`
-	MaxTokens   int     `yaml:"max_tokens" json:"max_tokens"`
-	Seed        int     `yaml:"seed" json:"seed"`
-	ContextSize int     `yaml:"context_size" json:"context_size"`
+	Temperature     float64 `yaml:"temperature" json:"temperature"`
+	MaxTokens       int     `yaml:"max_tokens" json:"max_tokens"`
+	Seed            int     `yaml:"seed" json:"seed"`
+	ContextSize     int     `yaml:"context_size" json:"context_size"`
+	ReasoningEffort string  `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
 }
 
 // Message is one provider-neutral conversation item.
@@ -49,15 +50,30 @@ type ChatRequest struct {
 
 // ChatResponse contains the next model message and provider metadata.
 type ChatResponse struct {
-	Message      Message
-	Model        string
-	FinishReason string
+	Message                  Message
+	Model                    string
+	FinishReason             string
+	ResponseID               string
+	ServiceTier              string
+	EffectiveReasoningEffort string
+	Usage                    TokenUsage
+}
+
+// TokenUsage records provider-reported token consumption for evaluation and audit metadata.
+type TokenUsage struct {
+	InputTokens       int `json:"input_tokens"`
+	CachedInputTokens int `json:"cached_input_tokens"`
+	CacheWriteTokens  int `json:"cache_write_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	ReasoningTokens   int `json:"reasoning_tokens"`
+	TotalTokens       int `json:"total_tokens"`
 }
 
 // Response is the completed prompt result returned to application services.
 type Response struct {
 	Text          string
 	Structured    *CounselorResponse
+	Unvalidated   bool
 	Model         string
 	PromptID      string
 	PromptVersion int

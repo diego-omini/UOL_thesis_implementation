@@ -5,6 +5,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 )
@@ -41,17 +42,17 @@ func TestEmbeddedCatalogResolvesActivePortfolioPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != PortfolioResumePromptAlias || definition.Version != 3 || definition.Response.Schema != CounselorResponseSchema {
+	if definition.ID != PortfolioResumePromptAlias || definition.Version != 1 || definition.Response.Format != "markdown" || definition.Response.Schema != "" {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
-	if _, err := catalog.version(PortfolioResumePromptAlias, 1); err != nil {
-		t.Fatalf("retained prompt version is unavailable: %v", err)
+	files, err := fs.Glob(promptFiles, "prompts/*/*.yaml")
+	if err != nil || len(files) != 10 {
+		t.Fatalf("release prompt files = %v (error %v), want exactly ten v1 definitions", files, err)
 	}
-	if _, err := catalog.version(PortfolioResumePromptAlias, 2); err != nil {
-		t.Fatalf("active prompt version is unavailable: %v", err)
-	}
-	if _, err := catalog.version(PortfolioResumePromptAlias, 3); err != nil {
-		t.Fatalf("active prompt version is unavailable: %v", err)
+	for _, file := range files {
+		if !strings.HasSuffix(file, "/v1.yaml") {
+			t.Fatalf("non-release prompt version remains embedded: %s", file)
+		}
 	}
 }
 
@@ -64,7 +65,7 @@ func TestEmbeddedCatalogResolvesPortfolioNewsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != PortfolioNewsPromptAlias || definition.Version != 2 || definition.Response.Schema != CounselorResponseSchema {
+	if definition.ID != PortfolioNewsPromptAlias || definition.Version != 1 || definition.Response.Format != "markdown" || definition.Response.Schema != "" {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
 }
@@ -78,7 +79,7 @@ func TestEmbeddedCatalogResolvesPortfolioRiskPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != PortfolioRiskPromptAlias || definition.Version != 1 || definition.Response.Schema != CounselorResponseSchema || len(definition.Tools) != 0 {
+	if definition.ID != PortfolioRiskPromptAlias || definition.Version != 1 || definition.Response.Format != "markdown" || definition.Response.Schema != "" || len(definition.Tools) != 0 {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
 }
@@ -92,7 +93,7 @@ func TestEmbeddedCatalogResolvesStockNewsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != StockNewsPromptAlias || definition.Version != 2 || definition.Response.Schema != CounselorResponseSchema {
+	if definition.ID != StockNewsPromptAlias || definition.Version != 1 || definition.Response.Format != "markdown" || definition.Response.Schema != "" {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
 	}
 }
@@ -106,8 +107,18 @@ func TestEmbeddedCatalogResolvesOrderAnalysisPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve returned an error: %v", err)
 	}
-	if definition.ID != OrderAnalysisPromptAlias || definition.Version != 2 || definition.Response.Schema != CounselorResponseSchema {
+	if definition.ID != OrderAnalysisPromptAlias || definition.Version != 1 || definition.Response.Format != "markdown" || definition.Response.Schema != "" {
 		t.Fatalf("unexpected prompt definition: %+v", definition)
+	}
+}
+
+func TestCounselorDefinitionRequiresWorkflowObservationLimit(t *testing.T) {
+	definition := PromptDefinition{
+		ID: "test", Version: 1, Description: "Test counselor prompt.", SystemTemplate: "System", UserTemplate: "User",
+		Response: ResponseSettings{Format: "json", Schema: CounselorResponseSchema, MaxCharacters: 1000, MaxTokens: 100},
+	}
+	if err := validateDefinition(definition); err == nil || !strings.Contains(err.Error(), "max_observations") {
+		t.Fatalf("missing counselor observation limit was not rejected: %v", err)
 	}
 }
 
@@ -122,33 +133,28 @@ func TestExecutorRejectsMissingAndUnexpectedParameters(t *testing.T) {
 	}
 }
 
-func TestExecutorRepairsOverlongResponse(t *testing.T) {
-	provider := &recordingProvider{responses: []ChatResponse{
-		{Message: Message{Role: "assistant", Content: "response that is too long"}, Model: "test-model"},
-		{Message: Message{Role: "assistant", Content: "short"}, Model: "test-model"},
-	}}
+func TestExecutorDisplaysOverlongMarkdownResponseWithoutWarning(t *testing.T) {
+	provider := &recordingProvider{responses: []ChatResponse{{Message: Message{Role: "assistant", Content: "response that is too long"}, Model: "test-model"}}}
 	executor := testExecutor(provider, 5)
 
 	response, err := executor.Execute(context.Background(), "active_test", map[string]any{"name": "portfolio"}, nil)
 	if err != nil {
 		t.Fatalf("Execute returned an error: %v", err)
 	}
-	if response.Text != "short" {
-		t.Fatalf("response was not repaired: %q", response.Text)
+	if response.Text != "response that is too long" || response.Unvalidated {
+		t.Fatalf("response was not returned unchanged: %+v", response)
 	}
-	if len(provider.requests) != 2 || provider.requests[1].Settings.Temperature != 0 {
-		t.Fatalf("expected a deterministic response-repair request: %+v", provider.requests)
+	if len(provider.requests) != 1 {
+		t.Fatalf("unexpected response-repair request: %+v", provider.requests)
 	}
 	if response.PromptID != "test" || response.PromptVersion != 2 {
 		t.Fatalf("prompt metadata was not returned: %+v", response)
 	}
 }
 
-func TestExecutorRepairsTextualToolEnvelope(t *testing.T) {
-	provider := &recordingProvider{responses: []ChatResponse{
-		{Message: Message{Role: "assistant", Content: `{"name":"analyze_portfolio","parameters":{"currency":"GBP"}}`}, Model: "test-model"},
-		{Message: Message{Role: "assistant", Content: "## Overall assessment\nFinal analysis."}, Model: "test-model"},
-	}}
+func TestExecutorReturnsTextualToolEnvelopeWithoutRepair(t *testing.T) {
+	const raw = `{"name":"analyze_portfolio","parameters":{"currency":"GBP"}}`
+	provider := &recordingProvider{responses: []ChatResponse{{Message: Message{Role: "assistant", Content: raw}, Model: "test-model"}}}
 	definition := PromptDefinition{
 		ID: "markdown_test", Version: 1, Description: "Markdown test.",
 		SystemTemplate: "System", UserTemplate: "User",
@@ -166,12 +172,8 @@ func TestExecutorRepairsTextualToolEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute returned an error: %v", err)
 	}
-	if response.Text != "## Overall assessment\nFinal analysis." || len(provider.requests) != 2 {
-		t.Fatalf("textual tool envelope was not repaired: response=%+v requests=%d", response, len(provider.requests))
-	}
-	repairPrompt := provider.requests[1].Messages[len(provider.requests[1].Messages)-1].Content
-	if !strings.Contains(repairPrompt, "tool-call envelope") || len(provider.requests[1].Tools) != 0 {
-		t.Fatalf("unexpected repair request: %+v", provider.requests[1])
+	if response.Text != raw || !response.Unvalidated || len(provider.requests) != 1 {
+		t.Fatalf("textual tool envelope was not returned unchanged: response=%+v requests=%d", response, len(provider.requests))
 	}
 }
 
@@ -261,7 +263,7 @@ func TestExecutorRunsRequiredToolsBeforeStructuredSynthesis(t *testing.T) {
 	}
 
 	response, err := NewExecutor(catalog, provider).ExecuteCounselorWithRequiredTools(
-		context.Background(), "required_tool_test", nil, []Tool{tool}, nil,
+		context.Background(), "required_tool_test", nil, []Tool{tool}, []CounselorFact{textFact("test.identity", CategorySuppliedFact, "Identity", "TEST")},
 		[]ToolCall{{Name: "lookup", Arguments: map[string]any{"query": "test"}}},
 	)
 	if err != nil {
@@ -273,6 +275,21 @@ func TestExecutorRunsRequiredToolsBeforeStructuredSynthesis(t *testing.T) {
 	request := provider.requests[0]
 	if len(request.Tools) != 0 || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "tool evidence") {
 		t.Fatalf("structured synthesis was not tool-free or lacked evidence: %+v", request)
+	}
+}
+
+func TestExecutorRejectsRequiredCallsAboveDeclaredLimit(t *testing.T) {
+	definition := PromptDefinition{
+		ID: "required_tool_limit", Version: 1, Description: "Required tool limit test.",
+		SystemTemplate: "System", UserTemplate: "User", Tools: []string{"lookup"},
+		ToolSettings: ToolSettings{MaxRounds: 1, MaxCalls: 1},
+		Response:     ResponseSettings{Format: "json", Schema: CounselorResponseSchema, MaxCharacters: 5000, MaxTokens: 100},
+	}
+	catalog := &Catalog{prompts: map[promptKey]PromptDefinition{{id: definition.ID, version: 1}: definition}, aliases: map[string]PromptReference{"required_tool_limit": {ID: definition.ID, Version: 1}}}
+	executor := NewExecutor(catalog, &recordingProvider{})
+	_, err := executor.ExecuteCounselorWithRequiredTools(context.Background(), "required_tool_limit", nil, []Tool{&testTool{}}, []CounselorFact{textFact("test.identity", CategorySuppliedFact, "Identity", "TEST")}, []ToolCall{{Name: "lookup"}, {Name: "lookup"}})
+	if err == nil || !strings.Contains(err.Error(), "permits at most 1") {
+		t.Fatalf("required call limit was not enforced: %v", err)
 	}
 }
 

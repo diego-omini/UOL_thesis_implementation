@@ -45,3 +45,37 @@ func (s *Store) SaveV2EvaluationBundle(ctx context.Context, bundle evaluation.V2
 	}
 	return nil
 }
+
+// SaveV3EvaluationBundle stores one immutable OpenAI version 3 evaluation output bundle.
+func (s *Store) SaveV3EvaluationBundle(ctx context.Context, bundle evaluation.V3Bundle) error {
+	contents, err := json.Marshal(bundle)
+	if err != nil {
+		return fmt.Errorf("encode version 3 evaluation bundle: %w", err)
+	}
+	record := EvaluationOutputRecord{
+		CreatedAt: bundle.CreatedAt.UTC(), SchemaVersion: SchemaVersion,
+		SuiteID: bundle.Manifest.SuiteID, SuiteVersion: bundle.Manifest.Version,
+		Model: bundle.Manifest.Model, RunCount: len(bundle.Runs), BundleJSON: string(contents),
+	}
+	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
+		return fmt.Errorf("store version 3 evaluation output: %w", err)
+	}
+	return nil
+}
+
+// SaveV4EvaluationBundle stores one immutable corrected OpenAI evaluation output bundle.
+func (s *Store) SaveV4EvaluationBundle(ctx context.Context, bundle evaluation.V4Bundle) error {
+	contents, err := json.Marshal(bundle)
+	if err != nil {
+		return fmt.Errorf("encode version 4 evaluation bundle: %w", err)
+	}
+	record := EvaluationOutputRecord{
+		CreatedAt: bundle.CreatedAt.UTC(), SchemaVersion: SchemaVersion,
+		SuiteID: bundle.Manifest.SuiteID, SuiteVersion: bundle.Manifest.Version,
+		Model: bundle.Manifest.Model, RunCount: len(bundle.Runs), BundleJSON: string(contents),
+	}
+	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
+		return fmt.Errorf("store version 4 evaluation output: %w", err)
+	}
+	return nil
+}

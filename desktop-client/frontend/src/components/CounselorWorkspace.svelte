@@ -15,6 +15,7 @@
   import { formatDate, formatError } from '../lib/format'
   import type { AIResponseView, RecentAnalysisView } from '../lib/types'
   import CounselorResponse from './CounselorResponse.svelte'
+  import PortfolioRiskAnalysis from './PortfolioRiskAnalysis.svelte'
 
   export let positionCount = 0
   export let currentPortfolioAsOf = ''
@@ -97,16 +98,9 @@
   }
 </script>
 
-<section class="workspace" aria-labelledby="counselor-title">
-  <div class="workspace-heading">
-    <div>
-      <span class="eyebrow">Read-only counselor</span>
-      <h2 id="counselor-title">Analysis library</h2>
-      <p>Choose a defined analysis. Each action uses application-controlled data and cannot create, prefill, confirm, or submit an order.</p>
-    </div>
-  </div>
-
-  <div class="purpose-groups">
+<section class="workspace" aria-label="Portfolio analysis library">
+    <p class="workspace-description"><strong>Read-only counselor.</strong> Choose a defined analysis. Each action uses application-controlled data and cannot create, prefill, confirm, or submit an order.</p>
+    <div class="purpose-groups">
     {#each purposes as purpose}
       <section class="purpose" aria-label={purpose}>
         <h3>{purpose}</h3>
@@ -125,7 +119,11 @@
         </div>
       </section>
     {/each}
-  </div>
+      <section class="purpose" aria-label="Risk">
+        <h3>Risk</h3>
+        <PortfolioRiskAnalysis embedded on:sessionIssue={() => dispatch('sessionIssue')} />
+      </section>
+    </div>
 
   <section class="result-area" aria-label="Active counselor result">
     {#if state.loading}
@@ -163,14 +161,11 @@
 </section>
 
 <style>
-  .workspace { max-width: 1144px; margin: 0 auto 16px; padding: 18px; border: 1px solid #cbd8e2; border-radius: 8px; background: white; }
-  .workspace-heading { display: flex; justify-content: space-between; gap: 20px; }
-  .eyebrow { color: #1f6f8b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-  h2, h3, p { margin-top: 0; }
-  h2 { margin-bottom: 5px; font-size: 21px; }
+  .workspace { padding-top: 18px; }
+  h3, p { margin-top: 0; }
   h3 { margin-bottom: 9px; font-size: 15px; }
-  .workspace-heading p, .purpose p, dd, .recent p, .state span, .state small { color: #5d6a7a; line-height: 1.45; }
-  .workspace-heading p { max-width: 760px; margin-bottom: 0; }
+  .workspace-description, .purpose p, dd, .recent p, .state span, .state small { color: #5d6a7a; line-height: 1.45; }
+  .workspace-description { max-width: 760px; margin: 12px 0 0; }
   .purpose-groups { display: grid; gap: 16px; margin-top: 18px; }
   .purpose { padding-top: 14px; border-top: 1px solid #e5ebf1; }
   .workflow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }

@@ -3,12 +3,13 @@
   import DOMPurify from 'dompurify'
   import { marked } from 'marked'
   import { BrowserOpenURL } from '../../wailsjs/runtime/runtime'
+  import { formatNumber, formatResponseNumbers } from '../lib/format'
   import type { AIResponseView } from '../lib/types'
 
   export let response: AIResponseView
   export let currentContextAsOf = ''
 
-  function renderMarkdown(value: string): string {
+  function renderMarkdown(value: string, allowExternalLinks = true): string {
     const rendered = marked.parse(value, { async: false, gfm: true })
     const sanitized = DOMPurify.sanitize(rendered, {
       ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'h2', 'h3', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
@@ -16,11 +17,15 @@
     })
     const template = document.createElement('template')
     template.innerHTML = sanitized
+    const textNodes = template.content.ownerDocument.createTreeWalker(template.content, 4)
+    for (let node = textNodes.nextNode(); node; node = textNodes.nextNode()) {
+      node.textContent = formatResponseNumbers(node.textContent ?? '')
+    }
     for (const anchor of template.content.querySelectorAll('a')) {
       const raw = anchor.getAttribute('href')
       try {
         const url = raw ? new URL(raw) : null
-        if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) throw new Error('unsupported URL')
+        if (!allowExternalLinks || !url || (url.protocol !== 'https:' && url.protocol !== 'http:')) throw new Error('unsupported URL')
         anchor.dataset.externalUrl = url.toString()
         anchor.removeAttribute('href')
         anchor.setAttribute('role', 'link')
@@ -67,69 +72,81 @@
 <div class="ai-response" aria-live="polite">
   <div class="ai-response-content" on:click={openCitation} on:keydown={openCitation}>
     {#if response.HasStructured}
-      <section class="summary">
-        <h2>Summary</h2>
-        <div>{@html renderMarkdown(response.Structured.Summary)}</div>
-      </section>
+      {#if response.Structured.Summary}
+        <section class="summary">
+          <h2>Summary</h2>
+          <div>{@html renderMarkdown(response.Structured.Summary, !response.Unvalidated)}</div>
+        </section>
+      {/if}
 
-      <section>
-        <h2>Observations</h2>
-        <div class="observations">
-          {#each response.Structured.Observations as observation}
-            <article class="observation">
-              <div class="observation-meta">
-                <span>{label(observation.Category)}</span>
-                <span>{label(observation.Severity)} relevance</span>
-                <span>{label(observation.Confidence)} confidence</span>
-              </div>
-              <h3>{observation.Statement}</h3>
-              <div>{@html renderMarkdown(observation.Explanation)}</div>
+      {#if response.Structured.Observations.length > 0}
+        <section>
+          <h2>Observations</h2>
+          <div class="observations">
+            {#each response.Structured.Observations as observation}
+              <article class="observation">
+                {#if observation.Category || observation.Severity || observation.Confidence}
+                  <div class="observation-meta">
+                    {#if observation.Category}<span>{label(observation.Category)}</span>{/if}
+                    {#if observation.Severity}<span>{label(observation.Severity)} materiality</span>{/if}
+                    {#if observation.Confidence}<span>{label(observation.Confidence)} confidence</span>{/if}
+                  </div>
+                {/if}
+                {#if observation.Statement}<h3>{observation.Statement}</h3>{/if}
+                {#if observation.Explanation}<div>{@html renderMarkdown(observation.Explanation, !response.Unvalidated)}</div>{/if}
 
-              {#if observation.ReportedValues.length > 0}
-                <dl class="reported-values">
-                  {#each observation.ReportedValues as value}
-                    <div>
-                      <dt>{value.FactID}</dt>
-                      <dd>{value.Value} {value.Unit}</dd>
-                    </div>
-                  {/each}
-                </dl>
-              {/if}
+                {#if observation.ReportedValues.length > 0}
+                  <dl class="reported-values">
+                    {#each observation.ReportedValues as value}
+                      <div>
+                        <dt>{value.FactID}</dt>
+                        <dd>{formatNumber(value.Value, 2)} {value.Unit}</dd>
+                      </div>
+                    {/each}
+                  </dl>
+                {/if}
 
-              {#if observation.SupportingFactIDs.length > 0}
-                <p class="support"><strong>Supporting facts:</strong> {observation.SupportingFactIDs.join(', ')}</p>
-              {/if}
-              {#if observation.Limitations.length > 0}
-                <ul class="observation-limitations">
-                  {#each observation.Limitations as limitation}<li>{limitation}</li>{/each}
-                </ul>
-              {/if}
-              {#if observation.Citations.length > 0}
-                <p class="citations">
-                  <strong>Sources:</strong>
-                  {#each observation.Citations as citation, index}
-                    <button type="button" class="citation-link" data-external-url={citation.URL}>{citation.Title || citation.URL}</button>{index < observation.Citations.length - 1 ? ', ' : ''}
-                  {/each}
-                </p>
-              {/if}
-            </article>
-          {/each}
-        </div>
-      </section>
+                {#if observation.SupportingFactIDs.length > 0}
+                  <p class="support"><strong>Supporting facts:</strong> {observation.SupportingFactIDs.join(', ')}</p>
+                {/if}
+                {#if observation.Limitations.length > 0}
+                  <ul class="observation-limitations">
+                    {#each observation.Limitations as limitation}<li>{limitation}</li>{/each}
+                  </ul>
+                {/if}
+                {#if observation.Citations.length > 0}
+                  <p class="citations">
+                    <strong>Sources:</strong>
+                    {#each observation.Citations as citation, index}
+                      {#if response.Unvalidated}
+                        <span class="citation-text">{citation.Title || citation.URL}</span>
+                      {:else}
+                        <button type="button" class="citation-link" data-external-url={citation.URL}>{citation.Title || citation.URL}</button>
+                      {/if}{index < observation.Citations.length - 1 ? ', ' : ''}
+                    {/each}
+                  </p>
+                {/if}
+              </article>
+            {/each}
+          </div>
+        </section>
+      {/if}
 
-      <section class="response-limitations">
-        <h2>Limitations</h2>
-        <ul>
-          {#each response.Structured.Limitations as limitation}
-            <li>
-              {limitation.Statement}
-              {#if limitation.FactIDs.length > 0}<small>{limitation.FactIDs.join(', ')}</small>{/if}
-            </li>
-          {/each}
-        </ul>
-      </section>
+      {#if response.Structured.Limitations.length > 0}
+        <section class="response-limitations">
+          <h2>Limitations</h2>
+          <ul>
+            {#each response.Structured.Limitations as limitation}
+              <li>
+                {limitation.Statement}
+                {#if limitation.FactIDs.length > 0}<small>{limitation.FactIDs.join(', ')}</small>{/if}
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
     {:else}
-      {@html renderMarkdown(response.Text)}
+      <div class="raw-response">{@html renderMarkdown(response.Text, false)}</div>
     {/if}
   </div>
   <footer>
@@ -151,6 +168,11 @@
 
   .ai-response small {
     color: #5d6a7a;
+  }
+
+  .raw-response {
+    margin: 0;
+    overflow-wrap: anywhere;
   }
 
   footer { display: grid; gap: 3px; padding-top: 10px; border-top: 1px solid #d8e0e8; }
@@ -259,6 +281,10 @@
     font: inherit;
     text-decoration: underline;
     cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+
+  .citation-text {
     overflow-wrap: anywhere;
   }
 

@@ -10,6 +10,7 @@
 
   const dispatch = createEventDispatcher<{ sessionIssue: void }>()
   const workflow = workflowCopy('portfolio_risk')
+  export let embedded = false
 
   let result: PortfolioRiskAnalysisView | null = null
   let counselorResponse: AIResponseView | null = null
@@ -18,6 +19,7 @@
   let errorMessage = ''
   let counselorError = ''
   let sequence = 0
+  $: explanationAvailability = workflowAvailability(workflow, { riskObservations: result?.Observations ?? 0 })
 
   onDestroy(() => sequence++)
 
@@ -68,13 +70,21 @@
   }
 </script>
 
-<section class="risk-card" aria-labelledby="portfolio-risk-title">
-  <div class="risk-heading">
-    <div><h2 id="portfolio-risk-title">Modeled portfolio risk</h2><span>Current signed weights with one year of broker price history</span></div>
-    <div class="risk-actions">
-      <button type="button" disabled={loading || counselorLoading} on:click={calculate}>{loading ? 'Calculating...' : (result ? 'Recalculate' : 'Calculate risk')}</button>
-      <button class="secondary" type="button" disabled={loading || counselorLoading || !workflowAvailability(workflow, { riskObservations: result?.Observations ?? 0 }).available} on:click={explain}>{counselorLoading ? workflow.loading : workflow.action}</button>
-    </div>
+<section class:embedded class="risk-card" aria-label="Modeled portfolio risk analyses">
+  <div class="workflow-grid">
+    <article class:active={loading || Boolean(result)}>
+      <div class="workflow-title"><strong>Modeled risk calculation</strong><span>No external research</span></div>
+      <p>Calculates current-weight risk metrics, position contributions, correlations, and deterministic stress scenarios.</p>
+      <dl><dt>Required data</dt><dd>Eligible stock positions and one year of broker daily price history</dd></dl>
+      <button type="button" disabled={loading || counselorLoading} on:click={calculate}>{loading ? 'Calculating...' : (result ? 'Recalculate risk' : 'Calculate risk')}</button>
+    </article>
+    <article class:active={counselorLoading || Boolean(counselorResponse)}>
+      <div class="workflow-title"><strong>{workflow.title}</strong><span>No external research</span></div>
+      <p>{workflow.description}</p>
+      <dl><dt>Required data</dt><dd>{workflow.requiredData}</dd></dl>
+      {#if !explanationAvailability.available}<p class="unavailable">{explanationAvailability.reason}</p>{/if}
+      <button type="button" disabled={loading || counselorLoading || !explanationAvailability.available} on:click={explain}>{counselorLoading ? workflow.loading : workflow.action}</button>
+    </article>
   </div>
 
   {#if errorMessage}<div class="state error" role="alert">{errorMessage}</div>{/if}
@@ -95,25 +105,28 @@
     {/if}
 
     <div class="scenarios"><h3>Deterministic stress scenarios</h3>{#each result.Scenarios as scenario}<article><div><strong>{scenario.Name}</strong><span>{scenario.Description}</span></div><div><strong>{formatMoney(scenario.Impact)}</strong><span>{formatPercent(scenario.ImpactRatio)} of net liquidation</span></div></article>{/each}</div>
-    {#if result.Warnings.length > 0}<details class="limits"><summary>Method and data limitations ({result.Warnings.length})</summary><ul>{#each result.Warnings as warning}<li>{warning}</li>{/each}</ul></details>{/if}
-    <div class="counselor-context"><strong>{workflow.title}</strong><span>{workflow.requiredData} · No external research</span>{#if !workflowAvailability(workflow, { riskObservations: result.Observations }).available}<small>{workflowAvailability(workflow, { riskObservations: result.Observations }).reason}</small>{/if}</div>
     {#if counselorError}<div class="state error" role="alert"><strong>{classifyCounselorError(counselorError).title}</strong><span>{classifyCounselorError(counselorError).guidance}</span><small>{counselorError}</small></div>{/if}
     {#if counselorResponse}<CounselorResponse response={counselorResponse} currentContextAsOf={result.CalculatedAt} />{/if}
-  {:else if !loading}
-    <div class="state">This calculation requests one year of daily history for each eligible stock. It does not reconstruct past holdings or account performance.</div>
   {/if}
 </section>
 
 <style>
   .risk-card { max-width: 1144px; margin: 0 auto 16px; padding: 18px; border: 1px solid #d8e0e8; border-radius: 6px; background: white; }
-  .risk-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-  .risk-heading div { display: grid; gap: 3px; }
-  .risk-actions { display: flex !important; grid-auto-flow: column; gap: 8px !important; }
-  h2, h3 { margin: 0; }
-  .risk-heading span, .context, .state, .row small, .scenarios span, .limits { color: #5d6a7a; }
-  button { min-height: 38px; padding: 0 14px; border: 1px solid #14566e; border-radius: 4px; background: #14566e; color: white; font: inherit; font-weight: 700; cursor: pointer; }
-  button:disabled { cursor: wait; opacity: .6; }
-  button.secondary { background: white; color: #14566e; }
+  .risk-card.embedded { max-width: none; margin: 0; padding: 0; border: 0; background: transparent; }
+  h3, p { margin-top: 0; }
+  .workflow-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+  .workflow-grid > article { display: grid; align-content: start; gap: 9px; padding: 14px; border: 1px solid #dce4ea; border-radius: 6px; background: white; }
+  .workflow-grid > article.active { border-color: #1f6f8b; box-shadow: inset 0 0 0 1px #1f6f8b; }
+  .workflow-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .workflow-title span { padding: 2px 6px; border-radius: 999px; background: #edf3f6; color: #536677; font-size: 10px; white-space: nowrap; }
+  .workflow-grid p { margin-bottom: 0; color: #5d6a7a; font-size: 13px; line-height: 1.45; }
+  .workflow-grid dl { margin: 0; }
+  .workflow-grid dt { color: #34495c; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+  .workflow-grid dd { margin: 2px 0 0; color: #5d6a7a; font-size: 12px; line-height: 1.45; }
+  .workflow-grid .unavailable { color: #a04a24; }
+  button { justify-self: start; min-height: 36px; padding: 0 12px; border: 1px solid #14566e; border-radius: 4px; background: #14566e; color: white; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: .55; }
+  .context, .state, .row small, .scenarios span { color: #5d6a7a; }
   .context { margin-top: 14px; font-size: 13px; }
   .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
   .metrics article { display: grid; gap: 6px; padding: 13px; border: 1px solid #e1e7ec; border-radius: 5px; }
@@ -128,12 +141,8 @@
   .scenarios article { display: flex; justify-content: space-between; gap: 20px; padding: 9px 0; border-top: 1px solid #edf1f5; }
   .scenarios article div { display: grid; gap: 2px; }
   .scenarios article div:last-child { text-align: right; }
-  .limits { margin-top: 12px; }
-  .limits summary { cursor: pointer; font-weight: 700; }
-  .limits ul { padding-left: 20px; }
   .state { margin-top: 14px; padding: 12px 14px; border-left: 4px solid #7a8797; background: #f6f8fa; }
   .state.error { border-color: #c2414b; background: #fff7f7; color: #a62f3a; }
-  .counselor-context { display: grid; gap: 3px; margin-top: 14px; padding: 11px 13px; border: 1px solid #dce4ea; border-radius: 5px; }
-  .counselor-context span, .counselor-context small { color: #5d6a7a; font-size: 12px; }
-  @media (max-width: 780px) { .risk-heading, .scenarios article { align-items: stretch; flex-direction: column; } .risk-actions { flex-direction: column; } .grids { grid-template-columns: 1fr; } .scenarios article div:last-child { text-align: left; } }
+  @media (max-width: 780px) { .scenarios article { align-items: stretch; flex-direction: column; } .grids { grid-template-columns: 1fr; } .scenarios article div:last-child { text-align: left; } }
+  @media (max-width: 650px) { .workflow-grid { grid-template-columns: 1fr; } .workflow-title { align-items: stretch; flex-direction: column; } .workflow-title span { width: max-content; } }
 </style>

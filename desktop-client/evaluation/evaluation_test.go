@@ -43,15 +43,91 @@ func TestLoadV2SuiteVerifiesFrozenProtocolAndFreshAnalytics(t *testing.T) {
 	}
 }
 
+func TestLoadV3SuiteReusesFrozenTreatmentsWithOpenAISettings(t *testing.T) {
+	suite, err := LoadV3Suite()
+	if err != nil {
+		t.Fatalf("LoadV3Suite returned an error: %v", err)
+	}
+	if suite.Manifest.Version != 3 || suite.Manifest.Provider != "openai" || suite.Manifest.Model != "gpt-6-luna" || suite.Manifest.Settings.ReasoningEffort != "low" {
+		t.Fatalf("unexpected version 3 manifest: %+v", suite.Manifest)
+	}
+	if len(suite.Conditions) != 2 || suite.Conditions[0].Version != 2 || len(suite.Scenarios) != 3 || len(suite.ProtocolHashes.Definitions) != 8 {
+		t.Fatal("version 3 did not retain the frozen treatment and scenario definitions")
+	}
+}
+
+func TestLoadV4SuiteLocksCorrectedSemanticContract(t *testing.T) {
+	suite, err := LoadV4Suite()
+	if err != nil {
+		t.Fatalf("LoadV4Suite returned an error: %v", err)
+	}
+	if suite.Manifest.Version != 4 || suite.Manifest.Provider != "openai" || suite.Manifest.Model != "gpt-6-luna" || suite.Manifest.Settings.ReasoningEffort != "low" {
+		t.Fatalf("unexpected version 4 manifest: %+v", suite.Manifest)
+	}
+	if len(suite.Conditions) != 2 || suite.Conditions[0].Version != 4 || len(suite.Scenarios) != 3 || len(suite.ProtocolHashes.Definitions) != 8 {
+		t.Fatal("version 4 did not retain the comparison and frozen scenarios")
+	}
+}
+
+func TestV4ContextNormalizesDerivableBaseValuesAndKeepsTrueGapsUnavailable(t *testing.T) {
+	suite, err := LoadV4Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	concentratedJSON, _, _, err := v4ConditionContext(suite.Scenarios[0], suite.Conditions[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var concentrated v2RawContext
+	if err := json.Unmarshal([]byte(concentratedJSON), &concentrated); err != nil {
+		t.Fatal(err)
+	}
+	assertV4Fact(t, concentrated.Facts, "position.1002.base_market_value", 2375, true, "broker_ledger_conversion")
+	assertV4Fact(t, concentrated.Facts, "position.1001.base_market_value", 6000, true, "same_currency_normalization")
+
+	incompleteJSON, _, _, err := v4ConditionContext(suite.Scenarios[2], suite.Conditions[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var incomplete v2RawContext
+	if err := json.Unmarshal([]byte(incompleteJSON), &incomplete); err != nil {
+		t.Fatal(err)
+	}
+	assertV4Fact(t, incomplete.Facts, "position.3002.base_market_value", 0, false, "unavailable")
+}
+
+func TestV4ValidationAllowsUnavailableSupportButNotReportedValues(t *testing.T) {
+	evidence := map[string]v2Evidence{
+		"position.missing.market_value": {ID: "position.missing.market_value", Unit: "money", Currency: "USD", Supplied: true, Available: false},
+	}
+	response := &V2EvaluationResponse{
+		Summary: "Missing value.",
+		Observations: []V2Observation{{
+			Category: "limitation", Statement: "The position market value is unavailable.",
+			SupportingIDs: []string{"position.missing.market_value"}, Severity: "limited",
+		}},
+		Safety: SafetyDeclaration{Disclaimer: "General information only."},
+	}
+	if err := validateV4Response(response, Condition{ID: "baseline"}, evidence); err != nil {
+		t.Fatalf("version 4 rejected supplied missingness evidence: %v", err)
+	}
+	response.Observations[0].ReportedValues = []V2ReportedValue{{
+		ReferenceID: "position.missing.market_value", Value: 0, Unit: "money", Currency: "USD", Source: "supplied",
+	}}
+	if err := validateV4Response(response, Condition{ID: "baseline"}, evidence); err == nil || !strings.Contains(err.Error(), "unavailable or mismatched") {
+		t.Fatalf("version 4 accepted an unavailable numeric value: %v", err)
+	}
+}
+
 func TestVersion1DefinitionsAndResultsRemainUnchanged(t *testing.T) {
 	expected := map[string]string{
-		"manifest.yaml": "1d6ba8daf00df2f6b9c6dbeffaa769632bf05cd594d201e4fe6df2e5bf18489d",
-		"conditions.yaml": "11175aafe0bfeb8ebccd746f3e39e110b19f983f38d388f06c155e614e79b0f7",
+		"manifest.yaml":      "1d6ba8daf00df2f6b9c6dbeffaa769632bf05cd594d201e4fe6df2e5bf18489d",
+		"conditions.yaml":    "11175aafe0bfeb8ebccd746f3e39e110b19f983f38d388f06c155e614e79b0f7",
 		"manual_rubric.yaml": "e48345fd06411a8cfc352f44b95b6fa83d39ea5158179f8e86abcb7e663d52ff",
-		"scenarios/01_concentrated_multicurrency.json": "5e1ef100ce7b49b372a1e1b61c3c0ad6c084a5e4c5ec9a7b0f8ad9ef7281a8ab",
-		"scenarios/02_diversified_mixed_exposure.json": "0a6d4f0b1571498189d9303f1a241cc9fa4f5689077ab89558707e65fdc1f836",
-		"scenarios/03_incomplete_data.json": "09578c37eb32b5fe54271db0acaa6c56a6955d6d3262b4189ea67d5082b74f14",
-		"results/portfolio-prompt-comparison-v1-20260928T075931Z.json": "35444f619e968a93b8ecf891981c97a1086dd049f6f4608beb0111428b72ce96",
+		"scenarios/01_concentrated_multicurrency.json":                        "5e1ef100ce7b49b372a1e1b61c3c0ad6c084a5e4c5ec9a7b0f8ad9ef7281a8ab",
+		"scenarios/02_diversified_mixed_exposure.json":                        "0a6d4f0b1571498189d9303f1a241cc9fa4f5689077ab89558707e65fdc1f836",
+		"scenarios/03_incomplete_data.json":                                   "09578c37eb32b5fe54271db0acaa6c56a6955d6d3262b4189ea67d5082b74f14",
+		"results/portfolio-prompt-comparison-v1-20260928T075931Z.json":        "35444f619e968a93b8ecf891981c97a1086dd049f6f4608beb0111428b72ce96",
 		"results/portfolio-prompt-comparison-v1-20260928T075931Z-analysis.md": "bd13c6b7e970b924bcdb16384578cfd675dde1562aef418b3a5b28daebea7649",
 	}
 	for path, digest := range expected {
@@ -196,7 +272,7 @@ func TestSaveV2BundleUsesSeparateAtomicVersionedArtifacts(t *testing.T) {
 	bundle := V2Bundle{
 		CreatedAt: time.Date(2026, 10, 7, 8, 30, 0, 0, time.UTC), RunKind: "final",
 		Manifest: suite.Manifest,
-		Runs: []V2RunResult{{Sequence: 1, ScenarioID: "scenario", ConditionID: "baseline", ConditionVersion: 2, RawResponse: "response"}},
+		Runs:     []V2RunResult{{Sequence: 1, ScenarioID: "scenario", ConditionID: "baseline", ConditionVersion: 2, RawResponse: "response"}},
 	}
 	directory := t.TempDir()
 	paths, err := SaveV2Bundle(directory, bundle)
@@ -215,6 +291,56 @@ func TestSaveV2BundleUsesSeparateAtomicVersionedArtifacts(t *testing.T) {
 	}
 	if _, err := SaveV2Bundle(directory, bundle); err == nil || !strings.Contains(err.Error(), "refusing to overwrite") {
 		t.Fatalf("expected overwrite protection, got %v", err)
+	}
+}
+
+func TestV3RunnerRetainsUsageAndSaveUsesVersionedArtifacts(t *testing.T) {
+	suite, err := LoadV3Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &v3CapturingProvider{response: validV2Response()}
+	bundle := NewV3Runner(provider).Run(context.Background(), suite, InspectV3Environment(suite.Manifest), "pilot", 1, SchemaPreflight{Passed: true})
+	if len(bundle.Runs) != 6 || bundle.ExecutedRepetitions != 1 || bundle.Usage.CompletedCalls != 6 || bundle.Usage.TotalTokens != 900 {
+		t.Fatalf("unexpected version 3 bundle: runs=%d usage=%+v", len(bundle.Runs), bundle.Usage)
+	}
+	for _, request := range provider.requests {
+		if request.Settings.ReasoningEffort != "low" || len(request.Tools) != 0 {
+			t.Fatalf("unexpected version 3 request: %+v", request)
+		}
+	}
+	directory := t.TempDir()
+	paths, err := SaveV3Bundle(directory, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filepath.Base(paths.BundlePath), "-v3-pilot-") {
+		t.Fatalf("unexpected version 3 artifact name: %s", paths.BundlePath)
+	}
+}
+
+func TestV4RunnerRetainsUsageAndSaveUsesVersionedArtifacts(t *testing.T) {
+	suite, err := LoadV4Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &v3CapturingProvider{response: validV2Response()}
+	bundle := NewV4Runner(provider).Run(context.Background(), suite, InspectV4Environment(suite.Manifest), "pilot", 1, SchemaPreflight{Passed: true})
+	if len(bundle.Runs) != 6 || bundle.ExecutedRepetitions != 1 || bundle.Usage.CompletedCalls != 6 || bundle.Usage.TotalTokens != 900 {
+		t.Fatalf("unexpected version 4 bundle: runs=%d usage=%+v", len(bundle.Runs), bundle.Usage)
+	}
+	for _, request := range provider.requests {
+		if request.Settings.ReasoningEffort != "low" || len(request.Tools) != 0 {
+			t.Fatalf("unexpected version 4 request: %+v", request)
+		}
+	}
+	directory := t.TempDir()
+	paths, err := SaveV4Bundle(directory, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filepath.Base(paths.BundlePath), "-v4-pilot-") {
+		t.Fatalf("unexpected version 4 artifact name: %s", paths.BundlePath)
 	}
 }
 
@@ -350,6 +476,38 @@ type capturingProvider struct {
 	response     string
 	finishReason string
 	err          error
+}
+
+type v3CapturingProvider struct {
+	requests []ai.ChatRequest
+	response string
+}
+
+func assertV4Fact(t *testing.T, facts []FactRecord, id string, value float64, available bool, source string) {
+	t.Helper()
+	for _, fact := range facts {
+		if fact.ID != id {
+			continue
+		}
+		if fact.Available != available || fact.Source != source {
+			t.Fatalf("unexpected fact %s: %+v", id, fact)
+		}
+		if available && (fact.Value == nil || math.Abs(*fact.Value-value) > 1e-9) {
+			t.Fatalf("unexpected value for %s: %+v", id, fact)
+		}
+		return
+	}
+	t.Fatalf("fact %s was not found", id)
+}
+
+func (p *v3CapturingProvider) Chat(_ context.Context, request ai.ChatRequest) (ai.ChatResponse, error) {
+	p.requests = append(p.requests, request)
+	return ai.ChatResponse{
+		Model: "gpt-6-luna", FinishReason: "completed", ResponseID: fmt.Sprintf("resp_%d", len(p.requests)),
+		ServiceTier: "default", EffectiveReasoningEffort: "low",
+		Usage:   ai.TokenUsage{InputTokens: 100, OutputTokens: 50, ReasoningTokens: 10, TotalTokens: 150},
+		Message: ai.Message{Role: "assistant", Content: p.response},
+	}, nil
 }
 
 func (p *capturingProvider) Chat(_ context.Context, request ai.ChatRequest) (ai.ChatResponse, error) {

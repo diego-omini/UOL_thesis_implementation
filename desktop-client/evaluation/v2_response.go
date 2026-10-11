@@ -177,13 +177,22 @@ func boundedText(field, value string, maximum int) error {
 }
 
 func validateV2Response(response *V2EvaluationResponse, condition Condition, evidence map[string]v2Evidence) error {
+	return validateResponseEvidence(response, condition, evidence, false)
+}
+
+// validateV4Response permits supplied unavailable facts as evidence of missingness while retaining numeric checks.
+func validateV4Response(response *V2EvaluationResponse, condition Condition, evidence map[string]v2Evidence) error {
+	return validateResponseEvidence(response, condition, evidence, true)
+}
+
+func validateResponseEvidence(response *V2EvaluationResponse, condition Condition, evidence map[string]v2Evidence, allowUnavailableSupport bool) error {
 	for observationIndex, observation := range response.Observations {
 		for _, id := range observation.SupportingIDs {
 			item, ok := evidence[id]
 			if !ok {
 				return fmt.Errorf("observation %d references unknown fact or metric identifier %q", observationIndex, id)
 			}
-			if !item.Supplied || !item.Available {
+			if !item.Supplied || (!allowUnavailableSupport && !item.Available) {
 				return fmt.Errorf("observation %d references unavailable or unsupplied identifier %q", observationIndex, id)
 			}
 		}

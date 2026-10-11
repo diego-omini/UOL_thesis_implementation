@@ -31,6 +31,7 @@ type ResponseSettings struct {
 	Format           string   `yaml:"format"`
 	Schema           string   `yaml:"schema"`
 	RequiredSections []string `yaml:"required_sections"`
+	MaxObservations  int      `yaml:"max_observations"`
 	MaxCharacters    int      `yaml:"max_characters"`
 	Temperature      float64  `yaml:"temperature"`
 	MaxTokens        int      `yaml:"max_tokens"`
@@ -193,6 +194,9 @@ func validateDefinition(definition PromptDefinition) error {
 	if definition.Response.Schema != "" {
 		if definition.Response.Format != "json" || definition.Response.Schema != CounselorResponseSchema {
 			return fmt.Errorf("response schema must be %q with JSON format", CounselorResponseSchema)
+		}
+		if definition.Response.MaxObservations < 1 || definition.Response.MaxObservations > maxCounselorObservations {
+			return fmt.Errorf("max_observations must be between 1 and %d", maxCounselorObservations)
 		}
 	}
 	for _, section := range definition.Response.RequiredSections {

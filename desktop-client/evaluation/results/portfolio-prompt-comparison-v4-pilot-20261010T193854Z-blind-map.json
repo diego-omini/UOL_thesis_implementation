@@ -1,0 +1,38 @@
+[
+  {
+    "review_id": "R-611d88154e3cbbf1",
+    "sequence": 1,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-71c44a73562a9274",
+    "sequence": 2,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-cdca5d45671fabd9",
+    "sequence": 3,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-edc66736e8ca1894",
+    "sequence": 4,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-64e01679a42a1210",
+    "sequence": 5,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-3d50b36a34a006de",
+    "sequence": 6,
+    "condition_id": "proposed",
+    "condition_version": 4
+  }
+]

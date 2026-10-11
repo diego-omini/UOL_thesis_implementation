@@ -3,6 +3,7 @@ import type { MoneyView, OptionalNumberView, RatioView } from './types'
 
 const decimalFormatters = new Map<string, Intl.NumberFormat>()
 const currencyFormatters = new Map<string, Intl.NumberFormat>()
+const responseNumberPattern = /(?<![\w/:.-])(-?(?:(?:\d{1,3}(?:[,'’]\d{3})+)|\d+)(?:\.\d+)?(?:e[+-]?\d+)?)(?![\w/.-])/gi
 
 function decimalFormatter(minimumFractionDigits: number, maximumFractionDigits: number): Intl.NumberFormat {
   const key = `${minimumFractionDigits}:${maximumFractionDigits}`
@@ -59,6 +60,16 @@ export function formatOptionalNumber(value: OptionalNumberView | undefined, maxi
 
 export function formatNumber(value: number | undefined, maximumFractionDigits = 4): string {
   return decimalFormatter(0, maximumFractionDigits).format(value ?? 0)
+}
+
+// formatResponseNumbers keeps generated prose readable without altering integers, dates, or URLs.
+export function formatResponseNumbers(value: string): string {
+  return value.replace(responseNumberPattern, token => {
+    const decimalPlaces = token.match(/\.(\d+)/)?.[1].length ?? 0
+    if (!/[eE]/.test(token) && decimalPlaces <= 2) return token
+    const parsed = Number(token.replace(/[,'’]/g, ''))
+    return Number.isFinite(parsed) ? decimalFormatter(0, 2).format(parsed) : token
+  })
 }
 
 export function formatPercent(value: RatioView | undefined): string {

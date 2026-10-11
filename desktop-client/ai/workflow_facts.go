@@ -16,10 +16,10 @@ import (
 func currencyExposureFacts(_ portfolio.Portfolio, result analytics.Result) []CounselorFact {
 	facts := []CounselorFact{
 		textFact("currency.analysis_timestamp", CategorySuppliedFact, "Analysis timestamp", result.CalculatedAt.UTC().Format(time.RFC3339)),
-		textFact("currency.base_currency", CategoryDeterministicDerivedFact, "Account base currency", result.BaseCurrency),
+		textFact("currency.base_currency", CategorySuppliedFact, "Account base currency", result.BaseCurrency),
 		textFact("currency.portfolio_source", CategorySuppliedFact, "Portfolio source", "IBKR Client Portal Gateway"),
 	}
-	facts = append(facts, allocationFacts("currency.allocation", "Gross exposure by instrument currency", result.CurrencyAllocation)...)
+	facts = append(facts, boundedAllocationFacts("currency.allocation", "Gross exposure by instrument currency", result.CurrencyAllocation, 12)...)
 	for _, rate := range result.ExchangeRates {
 		prefix := "currency.rate." + stableFactSegment(rate.Currency)
 		facts = append(facts,
@@ -52,9 +52,9 @@ func diversificationFacts(snapshot portfolio.Portfolio, result analytics.Result)
 		ratioFact(analytics.MetricTopThreeConcentration, "Top-three direct-position concentration", result.TopThreeConcentration, "percent"),
 		ratioFact(analytics.MetricHHI, "Direct-position Herfindahl-Hirschman index", result.HHI, "hhi_index"),
 	}
-	facts = append(facts, allocationFacts("diversification.direct_sector", "Direct sector exposure", result.SectorAllocation)...)
+	facts = append(facts, boundedAllocationFacts("diversification.direct_sector", "Direct sector exposure", result.SectorAllocation, 12)...)
 	facts = append(facts, focusedEffectiveExposureFacts(result, 12)...)
-	facts = append(facts, fundLookThroughFacts(result.FundLookThrough)...)
+	facts = append(facts, fundLookThroughFacts(result.FundLookThrough, 12)...)
 	return appendAnalyticsWarnings(facts, "diversification", result.Warnings)
 }
 
@@ -63,14 +63,25 @@ func dataQualityFacts(snapshot portfolio.Portfolio, result analytics.Result) []C
 		textFact("quality.analysis_timestamp", CategorySuppliedFact, "Audit timestamp", result.CalculatedAt.UTC().Format(time.RFC3339)),
 		textFact("quality.portfolio_source", CategorySuppliedFact, "Portfolio source", "IBKR Client Portal Gateway"),
 		numberFact("quality.position_count", CategorySuppliedFact, "Open position count", float64(len(snapshot.Positions)), "count", 0, 0),
-		textFact("quality.base_currency", CategoryDeterministicDerivedFact, "Account base currency", result.BaseCurrency),
+		textFact("quality.base_currency", CategorySuppliedFact, "Account base currency", result.BaseCurrency),
 		availabilityFact("quality.net_market_value", "Net market value availability", result.NetMarketValue.Available),
 		availabilityFact("quality.gross_exposure", "Gross exposure availability", result.GrossExposure.Available),
 		availabilityFact("quality.unrealized_pnl", "Unrealized profit or loss availability", result.TotalUnrealizedPnL.Available),
 		availabilityFact("quality.effective_exposure", "Effective look-through exposure completeness", result.EffectiveExposureComplete),
 		numberFact("quality.warning_count", CategoryDeterministicDerivedFact, "Distinct data-warning count", float64(len(result.Warnings)), "count", 0, 0),
 	}
-	for index, fund := range result.FundLookThrough {
+	funds := result.FundLookThrough
+	if len(funds) > 12 {
+		funds = funds[:12]
+		facts = append(facts, CounselorFact{
+			ID: "warning.quality.fund_coverage", Kind: string(CategoryUnavailableInformation),
+			Label: "Fund data-quality records supplied to the counselor", Available: false,
+			TextValue:          fmt.Sprintf("first %d of %d fund records", len(funds), len(result.FundLookThrough)),
+			Limitation:         fmt.Sprintf("The data-quality explanation received only %d of %d fund source records.", len(funds), len(result.FundLookThrough)),
+			RequiredLimitation: true,
+		})
+	}
+	for index, fund := range funds {
 		prefix := fmt.Sprintf("quality.fund.%d", index+1)
 		facts = append(facts,
 			textFact(prefix+".symbol", CategorySuppliedFact, "Fund ticker", fund.Fund.Symbol),
@@ -119,7 +130,7 @@ func focusedEffectiveExposureFacts(result analytics.Result, limit int) []Counsel
 	for _, exposure := range securityExposures {
 		facts = append(facts, ratioFact(exposure.MetricID, "Effective security exposure for "+valueOrUnavailable(exposure.Name), exposure.Weight, "percent"))
 	}
-	facts = append(facts, allocationFacts(strings.TrimSuffix(analytics.MetricEffectiveSectorPrefix, "."), "Effective sector exposure", result.EffectiveSectorAllocation)...)
+	facts = append(facts, boundedAllocationFacts(strings.TrimSuffix(analytics.MetricEffectiveSectorPrefix, "."), "Effective sector exposure", result.EffectiveSectorAllocation, 12)...)
 	if result.EffectiveExposureComplete {
 		facts = append(facts, textFact("effective.data_quality", CategoryDeterministicDerivedFact, "Effective exposure data quality", "complete"))
 	} else {
@@ -174,12 +185,12 @@ func positionRiskFacts(result positionanalysis.Result) []CounselorFact {
 		textFact(prefix+".symbol", CategorySuppliedFact, "Stock ticker", result.Instrument.Symbol),
 		textFact(prefix+".name", CategorySuppliedFact, "Stock name", result.Instrument.Name),
 		numberFact("position_risk.quantity", CategorySuppliedFact, "Current position quantity", result.Quantity, "shares", quantityTolerance, 0),
-		moneyFact("position_risk.average_cost", "Average cost", result.AverageCost),
-		moneyFact("position_risk.market_price", "Current position market price", result.MarketPrice),
-		moneyFact("position_risk.market_value", "Current position market value", result.MarketValue),
-		moneyFact("position_risk.base_market_value", "Current position base-currency market value", result.BaseMarketValue),
-		moneyFact("position_risk.unrealized_pnl", "Current unrealized profit or loss", result.UnrealizedPnL),
-		moneyFact("position_risk.base_unrealized_pnl", "Current base-currency unrealized profit or loss", result.BaseUnrealizedPnL),
+		moneyFactWithKind("position_risk.average_cost", CategorySuppliedFact, "Broker-reported average cost", result.AverageCost),
+		moneyFactWithKind("position_risk.market_price", CategorySuppliedFact, "Broker-reported current position market price", result.MarketPrice),
+		moneyFactWithKind("position_risk.market_value", CategorySuppliedFact, "Broker-reported current position market value", result.MarketValue),
+		moneyFactWithKind("position_risk.base_market_value", CategorySuppliedFact, "Broker-reported current position base-currency market value", result.BaseMarketValue),
+		moneyFactWithKind("position_risk.unrealized_pnl", CategorySuppliedFact, "Broker-reported current unrealized profit or loss", result.UnrealizedPnL),
+		moneyFactWithKind("position_risk.base_unrealized_pnl", CategorySuppliedFact, "Broker-reported current base-currency unrealized profit or loss", result.BaseUnrealizedPnL),
 		positionMetricFact("position_risk.portfolio_weight", "Current gross-exposure portfolio weight", result.PortfolioWeight, "percent"),
 		numberFact("position_risk.history_observations", CategoryDeterministicDerivedFact, "Closing-price observations", float64(result.HistoryObservations), "count", 0, 0),
 		positionMetricFact("position_risk.total_return", "Historical total return", result.TotalReturn, "percent"),

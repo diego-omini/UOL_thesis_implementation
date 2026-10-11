@@ -239,6 +239,7 @@ type FactRecord struct {
 	Value     *float64 `json:"value,omitempty"`
 	Unit      string   `json:"unit,omitempty"`
 	Currency  string   `json:"currency,omitempty"`
+	Source    string   `json:"source,omitempty"`
 	Available bool     `json:"available"`
 }
 
@@ -279,6 +280,10 @@ type V2RunResult struct {
 	StartedAt        time.Time             `json:"started_at"`
 	DurationMillis   int64                 `json:"duration_millis"`
 	ProviderModel    string                `json:"provider_model,omitempty"`
+	ResponseID       string                `json:"response_id,omitempty"`
+	ServiceTier      string                `json:"service_tier,omitempty"`
+	ReasoningEffort  string                `json:"reasoning_effort,omitempty"`
+	Usage            ai.TokenUsage         `json:"usage,omitempty"`
 	FinishReason     string                `json:"finish_reason,omitempty"`
 	RawResponse      string                `json:"raw_response,omitempty"`
 	ParsedResponse   *V2EvaluationResponse `json:"parsed_response,omitempty"`
@@ -313,12 +318,16 @@ type V2ConditionSummary struct {
 	Repeatability        MetricMean `json:"repeatability"`
 }
 
-// SchemaPreflight records the non-dataset call that verifies Ollama accepts the frozen schema.
+// SchemaPreflight records the non-dataset call that verifies the selected provider accepts the frozen schema.
 type SchemaPreflight struct {
-	CompletedAt   time.Time `json:"completed_at"`
-	ProviderModel string    `json:"provider_model"`
-	FinishReason  string    `json:"finish_reason,omitempty"`
-	Passed        bool      `json:"passed"`
+	CompletedAt     time.Time     `json:"completed_at"`
+	ProviderModel   string        `json:"provider_model"`
+	FinishReason    string        `json:"finish_reason,omitempty"`
+	ResponseID      string        `json:"response_id,omitempty"`
+	ServiceTier     string        `json:"service_tier,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	Usage           ai.TokenUsage `json:"usage,omitempty"`
+	Passed          bool          `json:"passed"`
 }
 
 // ProtocolHashes binds every file-based fixed definition to the final experiment.
@@ -343,4 +352,95 @@ type V2Bundle struct {
 	Preflight      SchemaPreflight      `json:"schema_preflight"`
 	Runs           []V2RunResult        `json:"runs"`
 	Summaries      []V2ConditionSummary `json:"summaries"`
+}
+
+// V3Manifest fixes the OpenAI constrained-output experiment without changing version 2.
+type V3Manifest struct {
+	SuiteID               string                `yaml:"suite_id" json:"suite_id"`
+	Version               int                   `yaml:"version" json:"version"`
+	Motivation            string                `yaml:"motivation" json:"motivation"`
+	RelationshipToEarlier string                `yaml:"relationship_to_earlier" json:"relationship_to_earlier"`
+	Provider              string                `yaml:"provider" json:"provider"`
+	Model                 string                `yaml:"model" json:"model"`
+	Repetitions           int                   `yaml:"repetitions" json:"repetitions"`
+	OrderStrategy         string                `yaml:"order_strategy" json:"order_strategy"`
+	RequestTimeoutSeconds int                   `yaml:"request_timeout_seconds" json:"request_timeout_seconds"`
+	Settings              ai.GenerationSettings `yaml:"settings" json:"settings"`
+	SamplingPolicy        string                `yaml:"sampling_policy" json:"sampling_policy"`
+	OutputLimitRationale  string                `yaml:"output_limit_rationale" json:"output_limit_rationale"`
+}
+
+// V3Environment records the hosted provider and local runner identity without persisting credentials.
+type V3Environment struct {
+	OperatingSystem string `json:"operating_system"`
+	Architecture    string `json:"architecture"`
+	LogicalCPUs     int    `json:"logical_cpus"`
+	GoVersion       string `json:"go_version"`
+	Provider        string `json:"provider"`
+	ConfiguredModel string `json:"configured_model"`
+}
+
+// UsageTotals aggregates provider-reported token usage across completed calls.
+type UsageTotals struct {
+	CompletedCalls    int `json:"completed_calls"`
+	InputTokens       int `json:"input_tokens"`
+	CachedInputTokens int `json:"cached_input_tokens"`
+	CacheWriteTokens  int `json:"cache_write_tokens"`
+	OutputTokens      int `json:"output_tokens"`
+	ReasoningTokens   int `json:"reasoning_tokens"`
+	TotalTokens       int `json:"total_tokens"`
+}
+
+// V3Bundle is the complete immutable artifact for one OpenAI version 3 execution.
+type V3Bundle struct {
+	CreatedAt           time.Time            `json:"created_at"`
+	RunKind             string               `json:"run_kind"`
+	ExecutedRepetitions int                  `json:"executed_repetitions"`
+	Manifest            V3Manifest           `json:"manifest"`
+	Conditions          []Condition          `json:"conditions"`
+	Scenarios           []FrozenScenario     `json:"scenarios"`
+	ResponseSchema      json.RawMessage      `json:"response_schema"`
+	ScoringRules        V2ScoringRules       `json:"scoring_rules"`
+	ManualRubric        V2ManualRubric       `json:"manual_rubric"`
+	ProtocolHashes      ProtocolHashes       `json:"protocol_hashes"`
+	Environment         V3Environment        `json:"environment"`
+	Preflight           SchemaPreflight      `json:"schema_preflight"`
+	Runs                []V2RunResult        `json:"runs"`
+	Summaries           []V2ConditionSummary `json:"summaries"`
+	Usage               UsageTotals          `json:"usage"`
+}
+
+// V4Manifest fixes the corrected OpenAI semantic-contract experiment.
+type V4Manifest struct {
+	SuiteID               string                `yaml:"suite_id" json:"suite_id"`
+	Version               int                   `yaml:"version" json:"version"`
+	Motivation            string                `yaml:"motivation" json:"motivation"`
+	RelationshipToEarlier string                `yaml:"relationship_to_earlier" json:"relationship_to_earlier"`
+	Provider              string                `yaml:"provider" json:"provider"`
+	Model                 string                `yaml:"model" json:"model"`
+	Repetitions           int                   `yaml:"repetitions" json:"repetitions"`
+	OrderStrategy         string                `yaml:"order_strategy" json:"order_strategy"`
+	RequestTimeoutSeconds int                   `yaml:"request_timeout_seconds" json:"request_timeout_seconds"`
+	Settings              ai.GenerationSettings `yaml:"settings" json:"settings"`
+	SamplingPolicy        string                `yaml:"sampling_policy" json:"sampling_policy"`
+	OutputLimitRationale  string                `yaml:"output_limit_rationale" json:"output_limit_rationale"`
+}
+
+// V4Bundle retains one corrected semantic-contract execution separately from version 3.
+type V4Bundle struct {
+	CreatedAt           time.Time            `json:"created_at"`
+	RunKind             string               `json:"run_kind"`
+	ExecutedRepetitions int                  `json:"executed_repetitions"`
+	Manifest            V4Manifest           `json:"manifest"`
+	Conditions          []Condition          `json:"conditions"`
+	Scenarios           []FrozenScenario     `json:"scenarios"`
+	ResponseSchema      json.RawMessage      `json:"response_schema"`
+	ScoringRules        V2ScoringRules       `json:"scoring_rules"`
+	ManualRubric        V2ManualRubric       `json:"manual_rubric"`
+	ProtocolHashes      ProtocolHashes       `json:"protocol_hashes"`
+	Environment         V3Environment        `json:"environment"`
+	Preflight           SchemaPreflight      `json:"schema_preflight"`
+	Runs                []V2RunResult        `json:"runs"`
+	Summaries           []V2ConditionSummary `json:"summaries"`
+	Usage               UsageTotals          `json:"usage"`
 }

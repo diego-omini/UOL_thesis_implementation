@@ -24,21 +24,6 @@ type Counselor struct {
 	researchFactory ResearchToolFactory
 }
 
-type promptPosition struct {
-	Symbol          string
-	Name            string
-	AssetClass      string
-	Sector          string
-	Currency        string
-	Quantity        float64
-	PortfolioWeight string
-}
-
-type promptAllocation struct {
-	Label  string
-	Weight string
-}
-
 // NewCounselor creates a read-only portfolio counselor backed by a prompt executor.
 func NewCounselor(executor *Executor, researchFactory ResearchToolFactory) *Counselor {
 	return &Counselor{executor: executor, researchFactory: researchFactory}
@@ -59,7 +44,8 @@ func (c *Counselor) PortfolioResume(
 
 	var tools []Tool
 	if c.researchFactory != nil {
-		tools = c.researchFactory.ForInstruments(toPublicInstruments(snapshot.Positions))
+		positions, _, _ := boundedPortfolioPositions(snapshot, result, maxPortfolioResumePositions)
+		tools = c.researchFactory.ForInstruments(toPublicInstruments(positions))
 	}
 	return c.executor.ExecuteCounselor(ctx, PortfolioResumePromptAlias, parameters, tools, facts)
 }
@@ -73,56 +59,6 @@ func toPublicInstruments(positions []portfolio.Position) []PublicInstrument {
 		})
 	}
 	return instruments
-}
-
-func toPromptPositions(snapshot portfolio.Portfolio, result analytics.Result) []promptPosition {
-	positions := make([]promptPosition, 0, len(snapshot.Positions))
-	for index, position := range snapshot.Positions {
-		weight := "unavailable"
-		if index < len(result.PositionWeights) {
-			weight = formatRatio(result.PositionWeights[index].Weight)
-		}
-		positions = append(positions, promptPosition{
-			Symbol:          valueOrUnavailable(position.Instrument.Symbol),
-			Name:            valueOrUnavailable(position.Instrument.Name),
-			AssetClass:      valueOrUnavailable(position.Instrument.AssetClass),
-			Sector:          valueOrUnavailable(position.Instrument.Sector),
-			Currency:        valueOrUnavailable(position.Instrument.Currency),
-			Quantity:        position.Quantity,
-			PortfolioWeight: weight,
-		})
-	}
-	return positions
-}
-
-func toPromptAllocations(allocations []analytics.Allocation) []promptAllocation {
-	values := make([]promptAllocation, 0, len(allocations))
-	for _, allocation := range allocations {
-		values = append(values, promptAllocation{
-			Label:  valueOrUnavailable(allocation.Label),
-			Weight: formatRatio(allocation.Weight),
-		})
-	}
-	return values
-}
-
-func warningMessages(warnings []analytics.DataWarning) []string {
-	messages := make([]string, 0, len(warnings))
-	for _, warning := range warnings {
-		message := warning.Message
-		if warning.Count > 1 {
-			message = fmt.Sprintf("%s (%d affected positions)", message, warning.Count)
-		}
-		messages = append(messages, message)
-	}
-	return messages
-}
-
-func formatRatio(ratio analytics.Ratio) string {
-	if !ratio.Available {
-		return "unavailable"
-	}
-	return fmt.Sprintf("%.1f%%", ratio.Value*100)
 }
 
 func valueOrUnavailable(value string) string {

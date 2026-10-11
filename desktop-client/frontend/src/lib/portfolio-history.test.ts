@@ -94,6 +94,14 @@ describe('portfolio history chart calculations', () => {
     assert.ok(Math.abs(points[0].y - points[1].y) < historyChartHeight / 4)
   })
 
+  it('uses whole power-of-ten keypoints for large monetary values', () => {
+    const chart = portfolioHistoryChart(series([1_009_493.375, 1_010_120.25]), 'netLiquidation', '2026-10-01T12:00:00Z', '2026-10-02T12:00:00Z')
+
+    assert.equal(chart.min, 1_000_000)
+    assert.equal((chart.min + chart.max) / 2, 1_010_000)
+    assert.equal(chart.max, 1_020_000)
+  })
+
   it('creates a readable active-period detail range for one point', () => {
     const chart = portfolioHistoryChart(series([100]), 'netLiquidation', '2026-09-01T12:00:00Z', '2026-10-02T12:00:00Z')
     const detail = historyDetailRange(chart)

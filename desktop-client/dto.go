@@ -308,6 +308,7 @@ type AIResponseView struct {
 	Text          string
 	Structured    CounselorResponseView
 	HasStructured bool
+	Unvalidated   bool
 	Provider      string
 	Model         string
 	PromptID      string
@@ -571,7 +572,7 @@ func toOrderResultView(result trading.Result) OrderResultView {
 // toAIResponseView maps validated counselor output into generated-binding-safe view types.
 func toAIResponseView(response ai.Response, provider string) AIResponseView {
 	view := AIResponseView{
-		Text: response.Text, Provider: provider, Model: response.Model,
+		Text: response.Text, Unvalidated: response.Unvalidated, Provider: provider, Model: response.Model,
 		PromptID: response.PromptID, PromptVersion: response.PromptVersion,
 		CreatedAt: formatOptionalTime(response.CreatedAt), ContextAsOf: formatOptionalTime(response.ContextAsOf),
 	}
@@ -611,7 +612,7 @@ func toRecentAnalysisViews(records []persistence.RecentAnalysis) []RecentAnalysi
 	views := make([]RecentAnalysisView, 0, len(records))
 	for _, record := range records {
 		views = append(views, RecentAnalysisView{ID: record.ID, Response: toAIResponseView(ai.Response{
-			Structured: &record.Response, Model: record.Model, PromptID: record.PromptID,
+			Structured: &record.Response, Unvalidated: false, Model: record.Model, PromptID: record.PromptID,
 			PromptVersion: record.PromptVersion, CreatedAt: record.CreatedAt, ContextAsOf: record.ContextAsOf,
 		}, record.Provider)})
 	}

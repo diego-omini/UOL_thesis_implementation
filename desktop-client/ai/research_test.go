@@ -9,9 +9,10 @@ import (
 )
 
 type recordingResearchProvider struct {
-	query      string
-	results    []SearchResult
-	fetchedURL string
+	query       string
+	results     []SearchResult
+	fetchedURL  string
+	returnedURL string
 }
 
 func (p *recordingResearchProvider) Search(_ context.Context, query string, _ int) ([]SearchResult, error) {
@@ -21,7 +22,11 @@ func (p *recordingResearchProvider) Search(_ context.Context, query string, _ in
 
 func (p *recordingResearchProvider) Fetch(_ context.Context, sourceURL string) (FetchedSource, error) {
 	p.fetchedURL = sourceURL
-	return FetchedSource{Title: "Filing", URL: sourceURL, Content: "Evidence"}, nil
+	returnedURL := sourceURL
+	if p.returnedURL != "" {
+		returnedURL = p.returnedURL
+	}
+	return FetchedSource{Title: "Filing", URL: returnedURL, Content: "Evidence"}, nil
 }
 
 func TestInstrumentSearchUsesOnlyPublicIdentityAndFixedTopic(t *testing.T) {
@@ -84,5 +89,16 @@ func TestInstrumentSearchEnforcesResultAndContentLimits(t *testing.T) {
 	}
 	if strings.Contains(result, "/second") || len([]rune(result)) > 2400 {
 		t.Fatalf("research limits were not enforced: %s", result)
+	}
+}
+
+func TestSourceFetchRejectsProviderURLSubstitution(t *testing.T) {
+	provider := &recordingResearchProvider{results: []SearchResult{{Title: "Filing", URL: "https://www.sec.gov/approved", Content: "Evidence"}}, returnedURL: "https://www.sec.gov/different"}
+	tools := NewResearchToolsFactory(provider, []string{"sec.gov"}, 1).ForInstruments([]PublicInstrument{{Name: "Apple Inc.", Ticker: "AAPL"}})
+	if _, err := tools[0].Execute(context.Background(), map[string]any{"name": "Apple Inc.", "ticker": "AAPL", "topic": "company_risk"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tools[1].Execute(context.Background(), map[string]any{"url": "https://www.sec.gov/approved"}); err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("provider URL substitution was not rejected: %v", err)
 	}
 }

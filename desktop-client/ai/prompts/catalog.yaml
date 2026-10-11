@@ -1,19 +1,19 @@
 aliases:
   portfolio_news:
     id: portfolio_news
-    version: 2
+    version: 1
   portfolio_resume:
     id: portfolio_resume
-    version: 3
+    version: 1
   portfolio_risk:
     id: portfolio_risk
     version: 1
   stock_news:
     id: stock_news
-    version: 2
+    version: 1
   order_analysis:
     id: order_analysis
-    version: 2
+    version: 1
   currency_exposure:
     id: currency_exposure
     version: 1

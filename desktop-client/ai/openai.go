@@ -30,7 +30,12 @@ type openAIResponseRequest struct {
 	Text            *openAITextConfig      `json:"text,omitempty"`
 	Temperature     *float64               `json:"temperature,omitempty"`
 	MaxOutputTokens int                    `json:"max_output_tokens,omitempty"`
+	Reasoning       *openAIReasoningConfig `json:"reasoning,omitempty"`
 	Store           bool                   `json:"store"`
+}
+
+type openAIReasoningConfig struct {
+	Effort string `json:"effort"`
 }
 
 type openAIInputItem struct {
@@ -62,13 +67,30 @@ type openAITextFormat struct {
 }
 
 type openAIResponse struct {
+	ID                string                 `json:"id"`
 	Status            string                 `json:"status"`
 	Model             string                 `json:"model"`
+	ServiceTier       string                 `json:"service_tier"`
 	Output            []openAIResponseOutput `json:"output"`
 	Error             *openAIError           `json:"error"`
+	Reasoning         *openAIReasoningConfig `json:"reasoning"`
+	Usage             openAIUsage            `json:"usage"`
 	IncompleteDetails *struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
+}
+
+type openAIUsage struct {
+	InputTokens        int `json:"input_tokens"`
+	OutputTokens       int `json:"output_tokens"`
+	TotalTokens        int `json:"total_tokens"`
+	InputTokensDetails struct {
+		CachedTokens     int `json:"cached_tokens"`
+		CacheWriteTokens int `json:"cache_write_tokens"`
+	} `json:"input_tokens_details"`
+	OutputTokensDetails struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 type openAIResponseOutput struct {
@@ -120,6 +142,9 @@ func (p *OpenAIProvider) Chat(ctx context.Context, request ChatRequest) (ChatRes
 		Tools:           toOpenAITools(request.Tools),
 		MaxOutputTokens: request.Settings.MaxTokens,
 		Store:           false,
+	}
+	if effort := strings.TrimSpace(request.Settings.ReasoningEffort); effort != "" {
+		payload.Reasoning = &openAIReasoningConfig{Effort: effort}
 	}
 	if openAIModelSupportsTemperature(p.model) {
 		payload.Temperature = &request.Settings.Temperature
@@ -193,7 +218,23 @@ func (p *OpenAIProvider) Chat(ctx context.Context, request ChatRequest) (ChatRes
 	if model == "" {
 		model = p.model
 	}
-	return ChatResponse{Message: message, Model: model, FinishReason: finishReason}, nil
+	effectiveEffort := ""
+	if generated.Reasoning != nil {
+		effectiveEffort = generated.Reasoning.Effort
+	}
+	return ChatResponse{
+		Message: message, Model: model, FinishReason: finishReason,
+		ResponseID: generated.ID, ServiceTier: generated.ServiceTier,
+		EffectiveReasoningEffort: effectiveEffort,
+		Usage: TokenUsage{
+			InputTokens:       generated.Usage.InputTokens,
+			CachedInputTokens: generated.Usage.InputTokensDetails.CachedTokens,
+			CacheWriteTokens:  generated.Usage.InputTokensDetails.CacheWriteTokens,
+			OutputTokens:      generated.Usage.OutputTokens,
+			ReasoningTokens:   generated.Usage.OutputTokensDetails.ReasoningTokens,
+			TotalTokens:       generated.Usage.TotalTokens,
+		},
+	}, nil
 }
 
 func openAIModelSupportsTemperature(model string) bool {

@@ -3,7 +3,6 @@
   import { createEventDispatcher } from 'svelte'
   import CounselorWorkspace from '../components/CounselorWorkspace.svelte'
   import PortfolioHistory from '../components/PortfolioHistory.svelte'
-  import PortfolioRiskAnalysis from '../components/PortfolioRiskAnalysis.svelte'
   import {
     formatDate,
     formatExchangeRate,
@@ -17,6 +16,7 @@
   export let portfolio: PortfolioView
 
   const dispatch = createEventDispatcher<{ stock: PositionView; sessionIssue: void }>()
+  let analysisExpanded = false
 
 </script>
 
@@ -43,14 +43,7 @@
   <article class="metric"><span>Concentration index</span><strong>{formatRatio(portfolio.Analytics.HHI)}</strong></article>
 </section>
 
-<CounselorWorkspace
-  positionCount={portfolio.Positions.length}
-  currentPortfolioAsOf={portfolio.Analytics.CalculatedAt}
-  on:sessionIssue={() => dispatch('sessionIssue')}
-/>
-
 <PortfolioHistory on:sessionIssue={() => dispatch('sessionIssue')} />
-<PortfolioRiskAnalysis on:sessionIssue={() => dispatch('sessionIssue')} />
 
 {#if portfolio.Analytics.ExchangeRates.some(rate => rate.Available && rate.Currency !== rate.BaseCurrency)}
   <section class="exchange-rates" aria-label="Currency conversion rates">
@@ -63,17 +56,6 @@
         </div>
       {/if}
     {/each}
-  </section>
-{/if}
-
-{#if portfolio.Analytics.Warnings.length > 0}
-  <section class="warning" aria-label="Portfolio data warnings">
-    <strong>Some analytics are limited by the available portfolio data</strong>
-    <ul>
-      {#each portfolio.Analytics.Warnings as warning}
-        <li>{warning.Message}{warning.Count > 1 ? ` (${warning.Count})` : ''}</li>
-      {/each}
-    </ul>
   </section>
 {/if}
 
@@ -148,9 +130,6 @@
           {fund.TopHoldingsOnly ? ' Only top holdings are available.' : ''}
         </p>
         {#if fund.SourceURL}<small>{fund.SourceURL}</small>{/if}
-        {#if fund.Warnings.length > 0}
-          <ul>{#each fund.Warnings as warning}<li>{warning}</li>{/each}</ul>
-        {/if}
         {#if fund.CurrencyAssumptions.length > 0 || fund.ClassificationAssumptions.length > 0}
           <details>
             <summary>Method assumptions</summary>
@@ -168,7 +147,20 @@
 <section class="table-section" aria-label="Positions">
   <div class="section-heading">
     <div class="section-title"><h2>Positions</h2><span>{portfolio.Positions.length} open</span></div>
+    <button class="analysis-toggle" type="button" aria-expanded={analysisExpanded} aria-controls="positions-analysis-library" on:click={() => analysisExpanded = !analysisExpanded}>
+      Analysis library <span aria-hidden="true">{analysisExpanded ? '−' : '+'}</span>
+    </button>
   </div>
+
+  {#if analysisExpanded}
+    <div id="positions-analysis-library" class="analysis-library">
+      <CounselorWorkspace
+        positionCount={portfolio.Positions.length}
+        currentPortfolioAsOf={portfolio.Analytics.CalculatedAt}
+        on:sessionIssue={() => dispatch('sessionIssue')}
+      />
+    </div>
+  {/if}
 
   {#if portfolio.Empty}
     <div class="empty-state"><strong>No open positions</strong><span>The authenticated paper account has no holdings to display.</span></div>
@@ -209,7 +201,6 @@
   .summary-grid,
   .analytics-heading,
   .allocation-grid,
-  .warning,
   .exchange-rates,
   .look-through-quality,
   .table-section {
@@ -246,7 +237,6 @@
   .allocation-card h3 { margin: 0; }
   .analytics-heading span { color: #5d6a7a; font-size: 13px; }
 
-  .warning,
   .exchange-rates,
   .empty-state {
     display: grid;
@@ -257,8 +247,6 @@
     box-shadow: 0 1px 3px rgba(24, 33, 47, 0.08);
   }
 
-  .warning { border-color: #c98716; }
-  .warning ul { margin: 2px 0 0; padding-left: 20px; color: #5d6a7a; }
   .exchange-rates { border-color: #7a8797; }
   .exchange-rates div { display: flex; justify-content: space-between; gap: 16px; }
   .exchange-rates small { color: #5d6a7a; }
@@ -297,6 +285,9 @@
   .section-heading h2 { margin: 0; font-size: 18px; }
   .section-title { display: flex; align-items: baseline; gap: 10px; }
   .section-title span { color: #5d6a7a; font-size: 14px; }
+  .analysis-toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 12px; border: 1px solid #14566e; border-radius: 4px; background: white; color: #14566e; font: inherit; font-weight: 700; cursor: pointer; }
+  .analysis-toggle span { font-size: 20px; font-weight: 500; line-height: 1; }
+  .analysis-library { padding: 0 18px 18px; border-bottom: 1px solid #e5ebf1; }
 
 
   .table-wrap { overflow-x: auto; }

@@ -130,6 +130,7 @@ export namespace main {
 	    Text: string;
 	    Structured: CounselorResponseView;
 	    HasStructured: boolean;
+	    Unvalidated: boolean;
 	    Provider: string;
 	    Model: string;
 	    PromptID: string;
@@ -146,6 +147,7 @@ export namespace main {
 	        this.Text = source["Text"];
 	        this.Structured = this.convertValues(source["Structured"], CounselorResponseView);
 	        this.HasStructured = source["HasStructured"];
+	        this.Unvalidated = source["Unvalidated"];
 	        this.Provider = source["Provider"];
 	        this.Model = source["Model"];
 	        this.PromptID = source["PromptID"];

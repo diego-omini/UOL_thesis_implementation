@@ -66,8 +66,10 @@ type sourceFetchTool struct {
 }
 
 const (
-	maxSearchSnippetCharacters = 2000
-	maxFetchedSourceCharacters = 12000
+	maxResearchURLCharacters    = 2048
+	maxSearchSnippetCharacters  = 1200
+	maxSearchEvidenceCharacters = 2400
+	maxFetchedSourceCharacters  = 8000
 )
 
 var researchTopics = map[string]string{
@@ -164,13 +166,21 @@ func (t *instrumentSearchTool) Execute(ctx context.Context, arguments map[string
 	accepted := make([]SearchResult, 0, len(results))
 	retrievedAt := time.Now().UTC().Format(time.RFC3339)
 	for _, result := range results {
-		if !domainAllowed(result.URL, t.session.allowedDomains) {
+		if len([]rune(result.URL)) > maxResearchURLCharacters || !domainAllowed(result.URL, t.session.allowedDomains) {
 			continue
 		}
 		result.Title = limitResearchText(result.Title, 300)
 		result.Content = limitResearchText(result.Content, maxSearchSnippetCharacters)
 		result.RetrievedAt = retrievedAt
-		accepted = append(accepted, result)
+		candidate := append(append([]SearchResult(nil), accepted...), result)
+		encodedCandidate, encodeErr := json.Marshal(candidate)
+		if encodeErr != nil {
+			return "", fmt.Errorf("encode accepted search results: %w", encodeErr)
+		}
+		if len([]rune(string(encodedCandidate))) > maxSearchEvidenceCharacters {
+			break
+		}
+		accepted = candidate
 		t.session.mu.Lock()
 		t.session.approvedURLs[result.URL] = struct{}{}
 		t.session.mu.Unlock()
@@ -230,6 +240,10 @@ func (t *sourceFetchTool) Execute(ctx context.Context, arguments map[string]any)
 	if err != nil {
 		return "", err
 	}
+	if strings.TrimSpace(source.URL) != "" && strings.TrimSpace(source.URL) != sourceURL {
+		return "", fmt.Errorf("fetched source URL does not match the approved session URL")
+	}
+	source.URL = sourceURL
 	source.Title = limitResearchText(source.Title, 300)
 	source.Content = limitResearchText(source.Content, maxFetchedSourceCharacters)
 	source.RetrievedAt = time.Now().UTC().Format(time.RFC3339)

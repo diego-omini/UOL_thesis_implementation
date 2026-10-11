@@ -16,11 +16,18 @@ test('analysis library has distinct workflows grouped by user purpose', () => {
     assert.ok(workflow.description)
     assert.ok(workflow.requiredData)
   }
+  assert.deepEqual(counselorWorkflows.filter(workflow => workflow.research).map(workflow => workflow.id), [
+    'portfolio_resume', 'portfolio_news', 'stock_news', 'order_analysis',
+  ])
+  assert.match(workflowCopy('portfolio_risk').description, /not a realized portfolio-return/)
+  assert.match(workflowCopy('currency_exposure').description, /instrument currencies.*not each issuer’s full economic currency exposure/)
+  assert.match(workflowCopy('position_risk').description, /not unmeasured business risk/)
 })
 
 test('availability rules explain missing portfolio, position, history, risk, and order inputs', () => {
   assert.deepEqual(workflowAvailability(workflowCopy('portfolio_resume'), { positionCount: 0 }), { available: false, reason: 'Requires at least one open position.' })
   assert.equal(workflowAvailability(workflowCopy('portfolio_resume'), { positionCount: 1 }).available, true)
+  assert.match(workflowAvailability(workflowCopy('portfolio_news'), { positionCount: 13 }).reason, /at most 12/)
   assert.match(workflowAvailability(workflowCopy('position_risk'), { stockSelected: true, positionHeld: false }).reason, /currently held/)
   assert.match(workflowAvailability(workflowCopy('portfolio_risk'), { riskObservations: 19 }).reason, /20 common daily returns/)
   assert.match(workflowAvailability(workflowCopy('portfolio_history_summary'), { historyPoints: 0 }).reason, /No observations/)
@@ -53,5 +60,8 @@ test('counselor failures distinguish session, research, provider, market data, b
   assert.equal(classifyCounselorError("OpenAI request failed: Unsupported parameter: 'temperature'").kind, 'provider')
   assert.equal(classifyCounselorError('insufficient common return observations').kind, 'market_data')
   assert.equal(classifyCounselorError('IBKR portfolio request failed').kind, 'broker')
-  assert.equal(classifyCounselorError('provider could not produce a valid final response').kind, 'validation')
+  const validation = classifyCounselorError('provider could not produce a valid final response')
+  assert.equal(validation.kind, 'validation')
+  assert.equal(validation.title, 'Response could not be recovered')
+  assert.match(validation.guidance, /automatic cleanup/i)
 })

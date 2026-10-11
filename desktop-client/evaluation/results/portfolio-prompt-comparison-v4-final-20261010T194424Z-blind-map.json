@@ -1,0 +1,182 @@
+[
+  {
+    "review_id": "R-07432b0eeec15b5b",
+    "sequence": 1,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-4156631146a4c3f1",
+    "sequence": 2,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-199b2ba75c21ec13",
+    "sequence": 3,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-02077998c4bee58c",
+    "sequence": 4,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-0a3ef3b0babb657c",
+    "sequence": 5,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-97fd2269a4b4584f",
+    "sequence": 6,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-12647bc153964956",
+    "sequence": 7,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-c5a18dfca99ec283",
+    "sequence": 8,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-9c6e18c87affeee0",
+    "sequence": 9,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-b3977f5730dcdf96",
+    "sequence": 10,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-b5d5d5247d0a4ae3",
+    "sequence": 11,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-7a3c162ef4f5fb43",
+    "sequence": 12,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-c56618be0b1e33d6",
+    "sequence": 13,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-07b1e18a34c12bd0",
+    "sequence": 14,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-8674fe5cbf200d70",
+    "sequence": 15,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-7f27915d7f50ae1a",
+    "sequence": 16,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-f68a37074a042978",
+    "sequence": 17,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-bfc449c180043c1f",
+    "sequence": 18,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-b2f5698dce0b21bb",
+    "sequence": 19,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-ea22c5956ceff43a",
+    "sequence": 20,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-68d51c7f143a4ec1",
+    "sequence": 21,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-305557f0df80a70d",
+    "sequence": 22,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-750f25ef03771218",
+    "sequence": 23,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-b8b3bfe49209dcd0",
+    "sequence": 24,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-5b44c2bb321aa25f",
+    "sequence": 25,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-cd4064d4971b15da",
+    "sequence": 26,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-d049bdb35a8aaa47",
+    "sequence": 27,
+    "condition_id": "proposed",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-d5b27cd98d62ba2e",
+    "sequence": 28,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-bc1b8b1e89fca679",
+    "sequence": 29,
+    "condition_id": "baseline",
+    "condition_version": 4
+  },
+  {
+    "review_id": "R-ab78fd4f5101ce13",
+    "sequence": 30,
+    "condition_id": "proposed",
+    "condition_version": 4
+  }
+]

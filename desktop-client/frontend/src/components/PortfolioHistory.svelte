@@ -51,16 +51,7 @@
   $: observationDateCount = new Set(chartPoints.map(point => point.capturedAt.slice(0, 10))).size
   $: leadingGap = Boolean(chart?.firstObservation && new Date(chart.firstObservation).getTime() > new Date(chart.from).getTime())
   $: metricDefinition = historyMetrics.find(metric => metric.value === selectedMetric) ?? historyMetrics[0]
-  $: duplicatePointCount = selectedMode === 'value' ? (history?.AccountValueDuplicatePointCount ?? 0) : (history?.TrackingDuplicatePointCount ?? 0)
-  $: downsampled = selectedMode === 'value' ? Boolean(history?.AccountValueDownsampled) : Boolean(history?.TrackingDownsampled)
   $: selectedPointCount = selectedMode === 'value' ? (history?.AccountValuePointCount ?? 0) : (history?.TrackingPointCount ?? 0)
-  $: partial = Boolean(history && (
-    availableSeries.length > 1 || duplicatePointCount > 0 || downsampled ||
-    (selectedMode === 'value' && history.ImportWarning) ||
-    leadingGap ||
-    availableSeries.some(value => value.Points.some(point => point.Warnings.length > 0)) ||
-    (series && chart && chart.availableCount < series.Points.length)
-  ))
 
   onMount(() => {
     const refreshAfterConnection = () => {
@@ -127,6 +118,17 @@
       return new Intl.NumberFormat(undefined, { style: 'currency', currency: series.BaseCurrency }).format(value)
     } catch {
       return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${series.BaseCurrency}`
+    }
+  }
+
+  function formatAxisValue(value: number): string {
+    if (metricDefinition.ratio) return `${Math.round(value * 100)}%`
+    if (metricDefinition.count) return Math.round(value).toLocaleString()
+    if (!series?.BaseCurrency) return Math.round(value).toLocaleString()
+    try {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency: series.BaseCurrency, maximumFractionDigits: 0 }).format(value)
+    } catch {
+      return `${Math.round(value).toLocaleString()} ${series.BaseCurrency}`
     }
   }
 
@@ -203,10 +205,10 @@
   {:else if errorMessage}
     <div class="history-state error" role="alert"><strong>Portfolio history unavailable</strong><span>{errorMessage}</span></div>
   {:else if !history || selectedPointCount === 0}
-    <div class="history-state" class:error={Boolean(selectedMode === 'value' && history?.ImportWarning)}>
+    <div class="history-state">
       {#if selectedMode === 'value'}
         <strong>{history?.ConnectionRequired ? 'Optional estimated history connection available' : (history?.ImportWarning ? 'Imported account value unavailable' : 'No account-value observations in this range')}</strong>
-        <span>{history?.ImportWarning || 'No broker-provided or local account-value observation was stored in this interval.'}</span>
+        <span>No broker-provided or local account-value observation was stored in this interval.</span>
         {#if history?.ConnectionRequired}<button class="connect" type="button" disabled={connecting} on:click={connectHistory}>{connecting ? 'Opening connection...' : 'Connect optional estimated history'}</button>{/if}
       {:else}
         <strong>No locally tracked analytics in this range</strong>
@@ -248,9 +250,9 @@
             <title>{metricDefinition.label} portfolio history; unavailable captures appear as gaps.</title>
             <line class="axis" x1="0" y1={historyChartHeight} x2={historyChartWidth} y2={historyChartHeight} />
             <line class="axis" x1="0" y1="0" x2="0" y2={historyChartHeight} />
-            <text class="axis-label" x="-12" y="8" text-anchor="end">{formatChartValue(chart.max)}</text>
-            <text class="axis-label" x="-12" y={historyChartHeight / 2 + 4} text-anchor="end">{formatChartValue((chart.min + chart.max) / 2)}</text>
-            <text class="axis-label" x="-12" y={historyChartHeight} text-anchor="end">{formatChartValue(chart.min)}</text>
+            <text class="axis-label" x="-12" y="8" text-anchor="end">{formatAxisValue(chart.max)}</text>
+            <text class="axis-label" x="-12" y={historyChartHeight / 2 + 4} text-anchor="end">{formatAxisValue((chart.min + chart.max) / 2)}</text>
+            <text class="axis-label" x="-12" y={historyChartHeight} text-anchor="end">{formatAxisValue(chart.min)}</text>
             {#each axisTicks as tick, index}
               {#if index > 0}<line class="grid" x1={tick.x} y1="0" x2={tick.x} y2={historyChartHeight} />{/if}
               <text class="axis-label" x={tick.x} y={historyChartHeight + 28} text-anchor={index === 0 ? 'start' : (index === axisTicks.length - 1 ? 'end' : 'middle')}>{formatAxisDate(tick.timestamp)}</text>
@@ -269,8 +271,8 @@
               <svg viewBox={`-90 -20 ${historyChartWidth + 110} ${historyChartHeight + 70}`} role="img" aria-label={`Detailed observed period from ${formatDate(detailChart.from)} to ${formatDate(detailChart.to)}.`}>
                 <line class="axis" x1="0" y1={historyChartHeight} x2={historyChartWidth} y2={historyChartHeight} />
                 <line class="axis" x1="0" y1="0" x2="0" y2={historyChartHeight} />
-                <text class="axis-label" x="-12" y="8" text-anchor="end">{formatChartValue(detailChart.max)}</text>
-                <text class="axis-label" x="-12" y={historyChartHeight} text-anchor="end">{formatChartValue(detailChart.min)}</text>
+                <text class="axis-label" x="-12" y="8" text-anchor="end">{formatAxisValue(detailChart.max)}</text>
+                <text class="axis-label" x="-12" y={historyChartHeight} text-anchor="end">{formatAxisValue(detailChart.min)}</text>
                 {#each detailTicks as tick, index}
                   {#if index > 0}<line class="grid" x1={tick.x} y1="0" x2={tick.x} y2={historyChartHeight} />{/if}
                   <text class="axis-label" x={tick.x} y={historyChartHeight + 28} text-anchor={index === 0 ? 'start' : (index === detailTicks.length - 1 ? 'end' : 'middle')}>{formatAxisDate(tick.timestamp)}</text>
@@ -292,22 +294,6 @@
       {/if}
     {/if}
 
-    {#if partial}
-      <div class="partial" role="status">
-        <strong>Partial history</strong>
-        <span>
-          {availableSeries.length > 1 ? 'Captures with incompatible base currencies are kept in separate series. ' : ''}
-          {duplicatePointCount > 0 ? `${duplicatePointCount} capture${duplicatePointCount === 1 ? '' : 's'} within 90 seconds were collapsed by keeping the later capture. ` : ''}
-          {downsampled ? 'The displayed series was evenly downsampled with its endpoints preserved. ' : ''}
-          {selectedMode === 'value' && history.OfficialPointCount > 0 ? `${history.OfficialPointCount} official IBKR end-of-day NAV observation${history.OfficialPointCount === 1 ? '' : 's'} supplement local captures. ` : ''}
-          {selectedMode === 'value' && history.EstimatedPointCount > 0 ? `${history.EstimatedPointCount} optional estimated SnapTrade end-of-day account value${history.EstimatedPointCount === 1 ? '' : 's'} supplement local captures. ` : ''}
-          {leadingGap ? `The first available observation is later than the selected range start. ` : ''}
-          {selectedMode === 'value' && history.ImportWarning ? `${history.ImportWarning} ` : ''}
-          Missing capture dates remain gaps.
-        </span>
-        {#if selectedMode === 'value' && history.ConnectionRequired}<button class="connect" type="button" disabled={connecting} on:click={connectHistory}>{connecting ? 'Opening connection...' : 'Connect optional estimated history'}</button>{/if}
-      </div>
-    {/if}
   {/if}
 </section>
 
@@ -350,11 +336,10 @@
   .observation-table-wrap { margin-top: 8px; overflow-x: auto; }
   .observation-details table { width: 100%; border-collapse: collapse; color: #293646; font-size: 13px; }
   .observation-details th, .observation-details td { padding: 7px 8px; border-top: 1px solid #e4e9ee; text-align: left; }
-  .history-state, .partial { display: grid; gap: 4px; margin-top: 16px; padding: 14px 16px; border-left: 4px solid #7a8797; background: #f6f8fa; color: #5d6a7a; }
+  .history-state { display: grid; gap: 4px; margin-top: 16px; padding: 14px 16px; border-left: 4px solid #7a8797; background: #f6f8fa; color: #5d6a7a; }
   .coverage { margin: 8px 0 4px; color: #5d6a7a; font-size: 13px; }
   .history-state.error { border-color: #c2414b; background: #fff7f7; }
   .connect { justify-self: start; margin-top: 8px; padding: 8px 12px; border: 1px solid #1f6f8b; border-radius: 4px; background: #1f6f8b; color: white; cursor: pointer; }
   .connect:disabled { cursor: wait; opacity: .65; }
-  .partial { border-color: #c98716; background: #fffaf0; }
   @media (max-width: 780px) { .history-heading, .chart-context { align-items: stretch; flex-direction: column; } }
 </style>

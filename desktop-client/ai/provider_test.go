@@ -4,6 +4,7 @@ package ai
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -23,8 +24,8 @@ const validStructuredResponse = `{"schema_version":1,"summary":"Structured summa
 
 const validPortfolioResume = validStructuredResponse
 const validPortfolioRisk = validStructuredResponse
-const validPortfolioNews = validStructuredResponse
-const validStockNews = validStructuredResponse
+const validPortfolioNews = `{"schema_version":1,"summary":"Research coverage was checked for both supplied identities.","observations":[{"category":"interpretation","statement":"Apple research coverage checked","supporting_fact_ids":["position.aapl.symbol"],"reported_values":[],"severity":"informational","confidence":"low","limitations":["No accepted result was returned by the test provider."],"explanation":"Coverage is represented without inventing an event.","citations":[]},{"category":"interpretation","statement":"Microsoft research coverage checked","supporting_fact_ids":["position.msft.symbol"],"reported_values":[],"severity":"informational","confidence":"low","limitations":["No accepted result was returned by the test provider."],"explanation":"Coverage is represented without inventing an event.","citations":[]}],"limitations":[{"statement":"The test provider returned no accepted research evidence.","fact_ids":[]}]}`
+const validStockNews = `{"schema_version":1,"summary":"Research coverage was checked for the supplied stock.","observations":[{"category":"interpretation","statement":"Stock research coverage checked","supporting_fact_ids":["instrument.aapl.symbol"],"reported_values":[],"severity":"informational","confidence":"low","limitations":["No accepted result was returned by the test provider."],"explanation":"Coverage is represented without inventing an event.","citations":[]}],"limitations":[{"statement":"The test provider returned no accepted research evidence.","fact_ids":[]}]}`
 const validOrderAnalysis = validStructuredResponse
 
 func (p *recordingProvider) Chat(_ context.Context, request ChatRequest) (ChatResponse, error) {
@@ -109,7 +110,7 @@ func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortfolioResume returned an error: %v", err)
 	}
-	if response.Text != validPortfolioResume || response.Structured == nil || response.PromptID != PortfolioResumePromptAlias || response.PromptVersion != 3 {
+	if response.Text != validPortfolioResume || response.Structured == nil || response.PromptID != PortfolioResumePromptAlias || response.PromptVersion != 1 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 	if len(provider.requests) != 1 {
@@ -130,7 +131,7 @@ func TestPortfolioResumeExecutesActiveCatalogPrompt(t *testing.T) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, userPrompt)
 		}
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || request.ResponseSchema == nil {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 1900 || request.ResponseSchema != nil || !strings.Contains(request.Messages[0].Content, "not JSON") {
 		t.Fatalf("unexpected response settings: %+v", request.Settings)
 	}
 	if len(request.Tools) != 2 {
@@ -192,7 +193,7 @@ func TestPortfolioRiskExecutesFocusedCatalogPrompt(t *testing.T) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, request.Messages[1].Content)
 		}
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || len(request.Tools) != 0 || request.ResponseSchema == nil {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 1900 || len(request.Tools) != 0 || request.ResponseSchema != nil || !strings.Contains(request.Messages[0].Content, "not JSON") {
 		t.Fatalf("unexpected portfolio-risk request: %+v", request)
 	}
 }
@@ -254,6 +255,21 @@ func TestPortfolioRiskFactsBoundCorrelationContext(t *testing.T) {
 	}
 }
 
+func TestPortfolioRiskFactsBoundPositionContext(t *testing.T) {
+	positions := make([]portfolioanalysis.PositionResult, 15)
+	for index := range positions {
+		positions[index] = portfolioanalysis.PositionResult{ContractID: int64(index + 1), Symbol: fmt.Sprintf("P%d", index+1), SignedWeight: float64(index + 1)}
+	}
+	facts := portfolioRiskFacts(portfolioanalysis.Result{CalculatedAt: time.Now(), Positions: positions})
+	if findFact(facts, "position.contract_1.symbol") != nil || findFact(facts, "position.contract_15.symbol") == nil {
+		t.Fatalf("modeled-risk position facts were not bounded by absolute weight: %#v", facts)
+	}
+	coverage := findFact(facts, "warning.portfolio_risk.position_coverage")
+	if coverage == nil || !coverage.RequiredLimitation {
+		t.Fatalf("modeled-risk position coverage limitation is missing: %#v", facts)
+	}
+}
+
 func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	catalog, err := NewCatalog()
 	if err != nil {
@@ -275,7 +291,7 @@ func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PortfolioNews returned an error: %v", err)
 	}
-	if response.Text != validPortfolioNews || response.Structured == nil || response.PromptID != PortfolioNewsPromptAlias || response.PromptVersion != 2 {
+	if response.Text != validPortfolioNews || response.Structured == nil || response.PromptID != PortfolioNewsPromptAlias || response.PromptVersion != 1 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 	request := provider.requests[0]
@@ -292,7 +308,7 @@ func TestPortfolioNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	if strings.Contains(userPrompt, "quantity") || strings.Contains(userPrompt, "portfolio weight") {
 		t.Fatalf("portfolio-news prompt contains private position data:\n%s", userPrompt)
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 4200 || len(request.Tools) != 0 || request.ResponseSchema == nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "mandatory research") {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 3000 || len(request.Tools) != 0 || request.ResponseSchema != nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "mandatory research") {
 		t.Fatalf("unexpected portfolio-news request: %+v", request)
 	}
 	if len(researchProvider.queries) != 2 {
@@ -308,6 +324,34 @@ func TestPortfolioNewsRejectsEmptyPortfolio(t *testing.T) {
 	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
 	if _, err := counselor.PortfolioNews(context.Background(), portfolio.Portfolio{}, time.Now()); err == nil {
 		t.Fatal("expected an empty portfolio error")
+	}
+}
+
+func TestPortfolioNewsRejectsUnboundedPositionCoverage(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	positions := make([]portfolio.Position, maxPortfolioNewsPositions+1)
+	for index := range positions {
+		positions[index].Instrument = portfolio.Instrument{ContractID: int64(index + 1), Symbol: fmt.Sprintf("P%d", index+1), Name: fmt.Sprintf("Position %d", index+1)}
+	}
+	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
+	_, err = counselor.PortfolioNews(context.Background(), portfolio.Portfolio{Positions: positions}, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "at most 12") {
+		t.Fatalf("unbounded portfolio-news coverage was not rejected: %v", err)
+	}
+}
+
+func TestPortfolioNewsRejectsPositionWithoutPublicIdentity(t *testing.T) {
+	catalog, err := NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	counselor := NewCounselor(NewExecutor(catalog, &recordingProvider{}), nil)
+	_, err = counselor.PortfolioNews(context.Background(), portfolio.Portfolio{Positions: []portfolio.Position{{Instrument: portfolio.Instrument{ContractID: 42}}}}, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "public name or ticker") {
+		t.Fatalf("missing portfolio-news identity was not rejected: %v", err)
 	}
 }
 
@@ -329,7 +373,7 @@ func TestStockNewsExecutesActiveCatalogPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StockNews returned an error: %v", err)
 	}
-	if response.Text != validStockNews || response.Structured == nil || response.PromptID != StockNewsPromptAlias || response.PromptVersion != 2 {
+	if response.Text != validStockNews || response.Structured == nil || response.PromptID != StockNewsPromptAlias || response.PromptVersion != 1 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 	request := provider.requests[0]
@@ -339,7 +383,7 @@ func TestStockNewsExecutesActiveCatalogPrompt(t *testing.T) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, userPrompt)
 		}
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2800 || len(request.Tools) != 0 || request.ResponseSchema == nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "regulatory_filings") {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 1600 || len(request.Tools) != 0 || request.ResponseSchema != nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "regulatory_filings") {
 		t.Fatalf("unexpected stock-news request: %+v", request)
 	}
 	if len(researchProvider.queries) != 3 {
@@ -406,7 +450,7 @@ func TestOrderAnalysisExecutesActiveCatalogPrompt(t *testing.T) {
 			t.Fatalf("rendered prompt does not contain %q:\n%s", expected, request.Messages[1].Content)
 		}
 	}
-	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 3600 || len(request.Tools) != 0 || request.ResponseSchema == nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "financial_condition") {
+	if request.Settings.Temperature != 0 || request.Settings.MaxTokens != 2200 || len(request.Tools) != 0 || request.ResponseSchema != nil || len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "financial_condition") {
 		t.Fatalf("unexpected order-analysis request: %+v", request)
 	}
 	if len(researchProvider.queries) != 5 {
