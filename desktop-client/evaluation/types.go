@@ -273,6 +273,7 @@ type V2ReportedValue struct {
 // V2RunResult retains one planned call regardless of provider or validation outcome.
 type V2RunResult struct {
 	Sequence         int                   `json:"sequence"`
+	ConfigurationID  string                `json:"configuration_id,omitempty"`
 	Repetition       int                   `json:"repetition"`
 	ScenarioID       string                `json:"scenario_id"`
 	ConditionID      string                `json:"condition_id"`
@@ -443,4 +444,86 @@ type V4Bundle struct {
 	Runs                []V2RunResult        `json:"runs"`
 	Summaries           []V2ConditionSummary `json:"summaries"`
 	Usage               UsageTotals          `json:"usage"`
+}
+
+// V5ModelConfiguration fixes one provider and model configuration in the cross-model experiment.
+type V5ModelConfiguration struct {
+	ID                    string                `yaml:"id" json:"id"`
+	Provider              string                `yaml:"provider" json:"provider"`
+	Model                 string                `yaml:"model" json:"model"`
+	ExpectedModelDigest   string                `yaml:"expected_model_digest" json:"expected_model_digest,omitempty"`
+	RequestTimeoutSeconds int                   `yaml:"request_timeout_seconds" json:"request_timeout_seconds"`
+	Settings              ai.GenerationSettings `yaml:"settings" json:"settings"`
+	SamplingPolicy        string                `yaml:"sampling_policy" json:"sampling_policy"`
+}
+
+// V5Manifest fixes the three-model robustness experiment without altering earlier protocols.
+type V5Manifest struct {
+	SuiteID               string                 `yaml:"suite_id" json:"suite_id"`
+	Version               int                    `yaml:"version" json:"version"`
+	Motivation            string                 `yaml:"motivation" json:"motivation"`
+	RelationshipToEarlier string                 `yaml:"relationship_to_earlier" json:"relationship_to_earlier"`
+	Repetitions           int                    `yaml:"repetitions" json:"repetitions"`
+	OrderStrategy         string                 `yaml:"order_strategy" json:"order_strategy"`
+	Configurations        []V5ModelConfiguration `yaml:"configurations" json:"configurations"`
+	OutputLimitRationale  string                 `yaml:"output_limit_rationale" json:"output_limit_rationale"`
+}
+
+// V5ProviderEnvironment records one hosted or local runtime without persisting credentials.
+type V5ProviderEnvironment struct {
+	ConfigurationID string `json:"configuration_id"`
+	Provider        string `json:"provider"`
+	ConfiguredModel string `json:"configured_model"`
+	ProviderModel   string `json:"provider_model"`
+	ModelDigest     string `json:"model_digest,omitempty"`
+	ProviderVersion string `json:"provider_version,omitempty"`
+}
+
+// V5Environment records the runner and all provider identities used by one execution.
+type V5Environment struct {
+	OperatingSystem string                  `json:"operating_system"`
+	Architecture    string                  `json:"architecture"`
+	LogicalCPUs     int                     `json:"logical_cpus"`
+	GoVersion       string                  `json:"go_version"`
+	Providers       []V5ProviderEnvironment `json:"providers"`
+}
+
+// V5Preflight binds one schema-acceptance check to its fixed model configuration.
+type V5Preflight struct {
+	ConfigurationID string          `json:"configuration_id"`
+	Result          SchemaPreflight `json:"result"`
+}
+
+// V5ConditionSummary keeps automated scores separated by model configuration and condition.
+type V5ConditionSummary struct {
+	ConfigurationID string             `json:"configuration_id"`
+	Provider        string             `json:"provider"`
+	ConfiguredModel string             `json:"configured_model"`
+	Scores          V2ConditionSummary `json:"scores"`
+}
+
+// V5UsageSummary retains provider-reported usage separately for each model configuration.
+type V5UsageSummary struct {
+	ConfigurationID string      `json:"configuration_id"`
+	Usage           UsageTotals `json:"usage"`
+}
+
+// V5Bundle is the complete immutable artifact for the three-model version 5 experiment.
+type V5Bundle struct {
+	CreatedAt              time.Time            `json:"created_at"`
+	RunKind                string               `json:"run_kind"`
+	ExecutedRepetitions    int                  `json:"executed_repetitions"`
+	ExecutedConfigurations []string             `json:"executed_configurations"`
+	Manifest               V5Manifest           `json:"manifest"`
+	Conditions             []Condition          `json:"conditions"`
+	Scenarios              []FrozenScenario     `json:"scenarios"`
+	ResponseSchema         json.RawMessage      `json:"response_schema"`
+	ScoringRules           V2ScoringRules       `json:"scoring_rules"`
+	ManualRubric           V2ManualRubric       `json:"manual_rubric"`
+	ProtocolHashes         ProtocolHashes       `json:"protocol_hashes"`
+	Environment            V5Environment        `json:"environment"`
+	Preflights             []V5Preflight        `json:"schema_preflights"`
+	Runs                   []V2RunResult        `json:"runs"`
+	Summaries              []V5ConditionSummary `json:"summaries"`
+	Usage                  []V5UsageSummary     `json:"usage"`
 }

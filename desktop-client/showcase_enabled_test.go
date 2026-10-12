@@ -62,6 +62,9 @@ func TestAdditionalShowcaseScenarioComposition(t *testing.T) {
 	byID := make(map[string]evaluation.FrozenScenario, len(scenarios))
 	for _, scenario := range scenarios {
 		byID[scenario.ID] = scenario
+		if scenario.ID == "multicurrency-10-stock" {
+			continue
+		}
 		result := analytics.Calculate(scenario.Portfolio, scenario.SnapshotAt)
 		for _, position := range result.PositionWeights {
 			if !position.Weight.Available || position.Weight.Value >= 0.10 {
@@ -90,6 +93,42 @@ func TestAdditionalShowcaseScenarioComposition(t *testing.T) {
 	for _, position := range etfs.Portfolio.Positions {
 		if !strings.EqualFold(position.Instrument.AssetClass, "ETF") {
 			t.Fatalf("ETF scenario contains a non-ETF position: %#v", position.Instrument)
+		}
+	}
+
+	multicurrency := byID["multicurrency-10-stock"]
+	if len(multicurrency.Portfolio.Positions) != 10 {
+		t.Fatalf("multicurrency positions = %d, want 10", len(multicurrency.Portfolio.Positions))
+	}
+	currencies := make(map[string]struct{}, len(multicurrency.Portfolio.Positions))
+	for _, position := range multicurrency.Portfolio.Positions {
+		if !strings.EqualFold(position.Instrument.AssetClass, "STK") {
+			t.Fatalf("multicurrency scenario contains a non-stock position: %#v", position.Instrument)
+		}
+		currencies[strings.ToUpper(position.Instrument.Currency)] = struct{}{}
+	}
+	if len(currencies) != len(multicurrency.Portfolio.Positions) {
+		t.Fatalf("multicurrency currencies = %d, want one distinct currency per position", len(currencies))
+	}
+	rates := make(map[string]struct{}, len(multicurrency.Portfolio.ExchangeRates))
+	for _, rate := range multicurrency.Portfolio.ExchangeRates {
+		if !rate.Available || !strings.EqualFold(rate.BaseCurrency, "CHF") || rate.BaseAmountPerUnit <= 0 {
+			t.Fatalf("multicurrency scenario contains an unusable CHF exchange rate: %#v", rate)
+		}
+		rates[strings.ToUpper(rate.Currency)] = struct{}{}
+	}
+	for currency := range currencies {
+		if currency == "CHF" {
+			continue
+		}
+		if _, exists := rates[currency]; !exists {
+			t.Fatalf("multicurrency scenario is missing a CHF exchange rate for %s", currency)
+		}
+	}
+	result := analytics.Calculate(multicurrency.Portfolio, multicurrency.SnapshotAt)
+	for _, position := range result.PositionWeights {
+		if !position.Weight.Available || position.Weight.Value < 0.099999 || position.Weight.Value > 0.100001 {
+			t.Fatalf("multicurrency position %s weight = %#v, want 10%%", position.Symbol, position.Weight)
 		}
 	}
 }

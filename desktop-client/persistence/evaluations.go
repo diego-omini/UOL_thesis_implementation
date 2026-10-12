@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"wails/evaluation"
 )
@@ -76,6 +77,32 @@ func (s *Store) SaveV4EvaluationBundle(ctx context.Context, bundle evaluation.V4
 	}
 	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return fmt.Errorf("store version 4 evaluation output: %w", err)
+	}
+	return nil
+}
+
+// SaveV5EvaluationBundle stores one immutable cross-model version 5 evaluation output bundle.
+func (s *Store) SaveV5EvaluationBundle(ctx context.Context, bundle evaluation.V5Bundle) error {
+	contents, err := json.Marshal(bundle)
+	if err != nil {
+		return fmt.Errorf("encode version 5 evaluation bundle: %w", err)
+	}
+	models := make([]string, 0, len(bundle.ExecutedConfigurations))
+	for _, configurationID := range bundle.ExecutedConfigurations {
+		for _, configuration := range bundle.Manifest.Configurations {
+			if configuration.ID == configurationID {
+				models = append(models, configuration.Model)
+				break
+			}
+		}
+	}
+	record := EvaluationOutputRecord{
+		CreatedAt: bundle.CreatedAt.UTC(), SchemaVersion: SchemaVersion,
+		SuiteID: bundle.Manifest.SuiteID, SuiteVersion: bundle.Manifest.Version,
+		Model: strings.Join(models, ","), RunCount: len(bundle.Runs), BundleJSON: string(contents),
+	}
+	if err := s.db.WithContext(ctx).Create(&record).Error; err != nil {
+		return fmt.Errorf("store version 5 evaluation output: %w", err)
 	}
 	return nil
 }

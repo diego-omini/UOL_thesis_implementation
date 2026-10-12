@@ -27,7 +27,7 @@ func TestOllamaProviderChat(t *testing.T) {
 			t.Fatalf("unexpected generation options: %+v", payload.Options)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"model":"test-model","message":{"role":"assistant","content":"portfolio summary"},"done":true}`))
+		_, _ = writer.Write([]byte(`{"model":"test-model","message":{"role":"assistant","content":"portfolio summary"},"done":true,"prompt_eval_count":25,"eval_count":10}`))
 	}))
 	defer server.Close()
 
@@ -43,7 +43,7 @@ func TestOllamaProviderChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat returned an error: %v", err)
 	}
-	if response.Message.Content != "portfolio summary" || response.Model != "test-model" {
+	if response.Message.Content != "portfolio summary" || response.Model != "test-model" || response.Usage.InputTokens != 25 || response.Usage.OutputTokens != 10 || response.Usage.TotalTokens != 35 {
 		t.Fatalf("unexpected response: %+v", response)
 	}
 }

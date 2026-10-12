@@ -79,6 +79,7 @@ type blindReviewEntry struct {
 type blindMapEntry struct {
 	ReviewID         string `json:"review_id"`
 	Sequence         int    `json:"sequence"`
+	ConfigurationID  string `json:"configuration_id,omitempty"`
 	ConditionID      string `json:"condition_id"`
 	ConditionVersion int    `json:"condition_version"`
 }
@@ -224,6 +225,57 @@ func SaveV4Bundle(directory string, bundle V4Bundle) (V2StoredPaths, error) {
 	return paths, nil
 }
 
+// SaveV5Bundle atomically stores the cross-model bundle and model-and-condition-blind review files.
+func SaveV5Bundle(directory string, bundle V5Bundle) (V2StoredPaths, error) {
+	if strings.TrimSpace(directory) == "" {
+		return V2StoredPaths{}, fmt.Errorf("evaluation result directory is required")
+	}
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return V2StoredPaths{}, fmt.Errorf("resolve evaluation result directory: %w", err)
+	}
+	if err := os.MkdirAll(absolute, 0750); err != nil {
+		return V2StoredPaths{}, fmt.Errorf("create evaluation result directory: %w", err)
+	}
+	suiteID := filenamePattern.ReplaceAllString(bundle.Manifest.SuiteID, "-")
+	runKind := filenamePattern.ReplaceAllString(bundle.RunKind, "-")
+	base := fmt.Sprintf("%s-v%d-%s-%s", suiteID, bundle.Manifest.Version, runKind, bundle.CreatedAt.UTC().Format("20060102T150405Z"))
+	if len(bundle.ExecutedConfigurations) == 1 {
+		configurationID := filenamePattern.ReplaceAllString(bundle.ExecutedConfigurations[0], "-")
+		base = fmt.Sprintf("%s-v%d-%s-%s-%s", suiteID, bundle.Manifest.Version, configurationID, runKind, bundle.CreatedAt.UTC().Format("20060102T150405Z"))
+	}
+	paths := V2StoredPaths{
+		BundlePath: filepath.Join(absolute, base+".json"),
+		ReviewPath: filepath.Join(absolute, base+"-blind-review.json"),
+		MapPath:    filepath.Join(absolute, base+"-blind-map.json"),
+	}
+	for _, path := range []string{paths.BundlePath, paths.ReviewPath, paths.MapPath} {
+		if _, statErr := os.Stat(path); statErr == nil {
+			return V2StoredPaths{}, fmt.Errorf("refusing to overwrite existing evaluation artifact %s", path)
+		} else if !os.IsNotExist(statErr) {
+			return V2StoredPaths{}, fmt.Errorf("inspect evaluation destination %s: %w", path, statErr)
+		}
+	}
+	review, mapping, err := buildBlindExports(bundle.Runs)
+	if err != nil {
+		return V2StoredPaths{}, err
+	}
+	artifacts := []struct {
+		path  string
+		value any
+	}{
+		{paths.BundlePath, bundle},
+		{paths.ReviewPath, review},
+		{paths.MapPath, mapping},
+	}
+	for _, artifact := range artifacts {
+		if err := writeAtomicJSON(absolute, artifact.path, artifact.value); err != nil {
+			return V2StoredPaths{}, err
+		}
+	}
+	return paths, nil
+}
+
 func buildBlindExports(runs []V2RunResult) ([]blindReviewEntry, []blindMapEntry, error) {
 	review := make([]blindReviewEntry, 0, len(runs))
 	mapping := make([]blindMapEntry, 0, len(runs))
@@ -239,7 +291,7 @@ func buildBlindExports(runs []V2RunResult) ([]blindReviewEntry, []blindMapEntry,
 			FailureKind: run.FailureKind, Error: run.Error,
 		})
 		mapping = append(mapping, blindMapEntry{
-			ReviewID: identifier, Sequence: run.Sequence, ConditionID: run.ConditionID,
+			ReviewID: identifier, Sequence: run.Sequence, ConfigurationID: run.ConfigurationID, ConditionID: run.ConditionID,
 			ConditionVersion: run.ConditionVersion,
 		})
 	}

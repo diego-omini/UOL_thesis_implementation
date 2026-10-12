@@ -30,12 +30,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	suiteVersion := flag.Int("suite-version", 4, "evaluation protocol version: 2, 3, or 4")
+	suiteVersion := flag.Int("suite-version", 5, "evaluation protocol version: 2, 3, 4, or 5")
 	baseURL := flag.String("base-url", strings.TrimSpace(os.Getenv("AI_BASE_URL")), "provider API base URL")
+	ollamaBaseURL := flag.String("ollama-base-url", "http://localhost:11434/api", "Ollama API base URL for version 5")
+	openAIBaseURL := flag.String("openai-base-url", "https://api.openai.com/v1", "OpenAI API base URL for version 5")
+	configuration := flag.String("configuration", "all", "version 5 configuration ID, or all")
 	output := flag.String("output", filepath.Join("evaluation", "results"), "result bundle directory")
 	databasePath := flag.String("database", filepath.Join(dataDirectory, "portfolio-tracker.db"), "SQLite database path")
 	runKind := flag.String("run-kind", "pilot", "recorded run kind: pilot or final")
-	pilotRepetitions := flag.Int("pilot-repetitions", 1, "repetitions per scenario for a version 3 pilot")
+	pilotRepetitions := flag.Int("pilot-repetitions", 1, "repetitions per scenario for a version 3, 4, or 5 pilot")
 	preflightOnly := flag.Bool("preflight-only", false, "verify environment, model digest, and schema acceptance without starting an experiment")
 	expectedDigest := flag.String("expected-model-digest", "", "must match the digest frozen in the version 2 manifest when supplied")
 	timeout := flag.Duration("timeout", 2*time.Hour, "maximum duration for the complete suite")
@@ -54,9 +57,111 @@ func run() error {
 		return runV3(ctx, *baseURL, *output, *databasePath, kind, *preflightOnly, *pilotRepetitions)
 	case 4:
 		return runV4(ctx, *baseURL, *output, *databasePath, kind, *preflightOnly, *pilotRepetitions)
+	case 5:
+		return runV5(ctx, *ollamaBaseURL, *openAIBaseURL, *output, *databasePath, kind, *configuration, *preflightOnly, *pilotRepetitions)
 	default:
-		return fmt.Errorf("suite-version must be 2, 3, or 4")
+		return fmt.Errorf("suite-version must be 2, 3, 4, or 5")
 	}
+}
+
+func runV5(ctx context.Context, ollamaBaseURL, openAIBaseURL, output, databasePath, kind, selectedConfiguration string, preflightOnly bool, pilotRepetitions int) error {
+	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	if apiKey == "" {
+		return fmt.Errorf("OPENAI_API_KEY is required for version 5")
+	}
+	suite, err := evaluation.LoadV5Suite()
+	if err != nil {
+		return err
+	}
+	repetitions := suite.Manifest.Repetitions
+	if kind == "pilot" {
+		repetitions = pilotRepetitions
+		if repetitions < 1 || repetitions > suite.Manifest.Repetitions {
+			return fmt.Errorf("pilot-repetitions must be between 1 and %d", suite.Manifest.Repetitions)
+		}
+	}
+	environment := evaluation.NewV5Environment()
+	providers := make([]evaluation.V5Provider, 0, len(suite.Manifest.Configurations))
+	selectedConfiguration = strings.TrimSpace(selectedConfiguration)
+	for _, configuration := range suite.Manifest.Configurations {
+		if selectedConfiguration != "all" && selectedConfiguration != configuration.ID {
+			continue
+		}
+		switch configuration.Provider {
+		case "ollama":
+			local, inspectErr := evaluation.InspectEnvironment(ctx, ollamaBaseURL, configuration.Model)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			if !strings.EqualFold(local.ModelDigest, configuration.ExpectedModelDigest) {
+				return fmt.Errorf("model digest mismatch for %s: expected %s, found %s", configuration.ID, configuration.ExpectedModelDigest, local.ModelDigest)
+			}
+			environment.Providers = append(environment.Providers, evaluation.V5ProviderEnvironment{
+				ConfigurationID: configuration.ID, Provider: configuration.Provider,
+				ConfiguredModel: configuration.Model, ProviderModel: local.Model,
+				ModelDigest: local.ModelDigest, ProviderVersion: local.OllamaVersion,
+			})
+			providers = append(providers, evaluation.V5Provider{Configuration: configuration, Provider: ai.NewOllamaProvider(ollamaBaseURL, configuration.Model)})
+		case "openai":
+			environment.Providers = append(environment.Providers, evaluation.V5ProviderEnvironment{
+				ConfigurationID: configuration.ID, Provider: configuration.Provider, ConfiguredModel: configuration.Model,
+			})
+			providers = append(providers, evaluation.V5Provider{Configuration: configuration, Provider: ai.NewOpenAIProvider(openAIBaseURL, apiKey, configuration.Model)})
+		default:
+			return fmt.Errorf("unsupported version 5 provider %q", configuration.Provider)
+		}
+	}
+	if len(providers) == 0 {
+		return fmt.Errorf("version 5 configuration %q is not in the fixed model matrix", selectedConfiguration)
+	}
+	runner := evaluation.NewV5Runner(providers)
+	runner.SetProgress(func(run evaluation.V2RunResult) {
+		status := "valid"
+		if run.FailureKind != "" {
+			status = run.FailureKind
+		}
+		fmt.Printf("Completed %s %s/%s repetition %d in %.1fs: %s\n", run.ConfigurationID, run.ScenarioID, run.ConditionID, run.Repetition, float64(run.DurationMillis)/1000, status)
+	})
+	preflights, err := runner.VerifySchemaAcceptance(ctx, suite)
+	if err != nil {
+		return err
+	}
+	for _, preflight := range preflights {
+		fmt.Printf("Schema preflight passed for %s with %s.\n", preflight.ConfigurationID, preflight.Result.ProviderModel)
+		for index := range environment.Providers {
+			if environment.Providers[index].ConfigurationID == preflight.ConfigurationID && environment.Providers[index].ProviderModel == "" {
+				environment.Providers[index].ProviderModel = preflight.Result.ProviderModel
+			}
+		}
+	}
+	if preflightOnly {
+		return nil
+	}
+
+	bundle := runner.Run(ctx, suite, environment, kind, repetitions, preflights)
+	paths, err := evaluation.SaveV5Bundle(output, bundle)
+	if err != nil {
+		return err
+	}
+	store, err := persistence.Open(databasePath)
+	if err != nil {
+		return fmt.Errorf("bundle stored at %s but database open failed: %w", paths.BundlePath, err)
+	}
+	defer store.Close()
+	if err := store.SaveV5EvaluationBundle(context.WithoutCancel(ctx), bundle); err != nil {
+		return fmt.Errorf("bundle stored at %s but database storage failed: %w", paths.BundlePath, err)
+	}
+	fmt.Printf("Stored %d version 5 %s runs in %s\n", len(bundle.Runs), kind, paths.BundlePath)
+	fmt.Printf("Blind review: %s\nBlind mapping: %s\n", paths.ReviewPath, paths.MapPath)
+	for _, summary := range bundle.Summaries {
+		scores := summary.Scores
+		fmt.Printf("%s/%s: schema %.3f (%d/%d), coverage %s, accuracy %s, grounding %s, repeatability %s\n",
+			summary.ConfigurationID, scores.ConditionID, scores.SchemaValidity, scores.SchemaValidRuns, scores.PlannedRuns,
+			formatMetric(scores.RequiredFactCoverage), formatMetric(scores.NumericalAccuracy),
+			formatMetric(scores.Grounding), formatMetric(scores.Repeatability),
+		)
+	}
+	return nil
 }
 
 func runV2(ctx context.Context, baseURL, output, databasePath, kind string, preflightOnly bool, expectedDigest string) error {

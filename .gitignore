@@ -1,40 +1,28 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
+# Go build and test output
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Code coverage profiles and other test artifacts
 *.out
 coverage.*
 *.coverprofile
 profile.cov
-
-# Dependency directories (remove the comment below to include it)
-# vendor/
-
-# Go workspace file
+.gocache/
+desktop-client/.tmp-go-cache/
 go.work
 go.work.sum
 
-# env file
-.env
+# Local application and evaluation data
+*.db
+*.db-shm
+*.db-wal
+desktop-client/evaluation/results/*
+!desktop-client/evaluation/results/README.md
 
-# Editor/IDE
-# .idea/
-.vscode/
-
-# Dependencies
+# Frontend dependencies and generated output
 desktop-client/frontend/node_modules/
-
-# Frontend build output
 desktop-client/frontend/dist/
 desktop-client/frontend/.svelte-kit/
 
@@ -42,61 +30,18 @@ desktop-client/frontend/.svelte-kit/
 desktop-client/build/bin/
 desktop-client/build/windows/installer/*
 
-# Go build/test artifacts
-*.exe
-*.test
-*.out
-.gocache/
-desktop-client/.tmp-go-cache/
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
 
-# Logs
+# Logs, editors, and operating-system files
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-# Environment files
-.env
-.env.*
-!.env.example
-
-# OS/editor files
-.DS_Store
-Thumbs.db
 .vscode/
 .idea/
-
-# Dependencies
-desktop-client/frontend/node_modules/
-
-# Frontend build output
-desktop-client/frontend/dist/
-desktop-client/frontend/.svelte-kit/
-
-# Wails build output
-desktop-client/build/bin/
-desktop-client/build/windows/installer/*
-
-# Go build/test artifacts
-*.exe
-*.test
-*.out
-
-# Logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Environment files
-.env
-.env.*
-!.env.example
-
-# OS/editor files
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/

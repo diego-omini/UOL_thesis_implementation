@@ -344,6 +344,48 @@ func TestV4RunnerRetainsUsageAndSaveUsesVersionedArtifacts(t *testing.T) {
 	}
 }
 
+func TestV5RunnerSeparatesModelsAndBlindsConfiguration(t *testing.T) {
+	suite, err := LoadV5Suite()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := make([]V5Provider, 0, len(suite.Manifest.Configurations))
+	for _, configuration := range suite.Manifest.Configurations {
+		providers = append(providers, V5Provider{
+			Configuration: configuration,
+			Provider:      &v3CapturingProvider{response: validV2Response()},
+		})
+	}
+	bundle := NewV5Runner(providers).Run(context.Background(), suite, NewV5Environment(), "pilot", 1, nil)
+	if len(bundle.Runs) != 18 || len(bundle.Summaries) != 6 || len(bundle.Usage) != 3 {
+		t.Fatalf("unexpected version 5 bundle: runs=%d summaries=%d usage=%d", len(bundle.Runs), len(bundle.Summaries), len(bundle.Usage))
+	}
+	for _, usage := range bundle.Usage {
+		if usage.Usage.CompletedCalls != 6 || usage.Usage.TotalTokens != 900 {
+			t.Fatalf("usage was not separated by configuration: %+v", usage)
+		}
+	}
+	directory := t.TempDir()
+	paths, err := SaveV5Bundle(directory, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := os.ReadFile(paths.ReviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(review), "configuration_id") || strings.Contains(string(review), "condition_id") {
+		t.Fatal("blind review file disclosed model or condition identity")
+	}
+	mapping, err := os.ReadFile(paths.MapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mapping), "configuration_id") || !strings.Contains(filepath.Base(paths.BundlePath), "-v5-pilot-") {
+		t.Fatal("version 5 mapping or artifact name omitted protocol identity")
+	}
+}
+
 func TestLoadSuiteValidatesFrozenFacts(t *testing.T) {
 	manifest, conditions, scenarios, rubric, err := LoadSuite()
 	if err != nil {

@@ -1,0 +1,42 @@
+suite_id: portfolio-prompt-comparison
+version: 5
+motivation: Version 5 tests whether the corrected baseline-versus-proposed prompt effect is consistent across the deployed local model and two fixed hosted OpenAI models.
+relationship_to_earlier: Version 5 is a separate cross-model experiment and does not replace, rescore, pool with, or alter versions 1 through 4.
+repetitions: 5
+order_strategy: alternating_within_configuration
+configurations:
+  - id: ollama-qwen2-5-3b
+    provider: ollama
+    model: qwen2.5:3b
+    expected_model_digest: 357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b
+    request_timeout_seconds: 360
+    settings:
+      temperature: 0
+      max_tokens: 3072
+      seed: 42
+      context_size: 8192
+      reasoning_effort: ""
+    sampling_policy: Ollama uses temperature zero, seed 42, an 8192-token context, disabled thinking, and the Vulkan backend explicitly enabled for the RTX 2060. qwen2.5:3b replaced qwen3:14b after the 14B pilot timed out, qwen3:8b after its first response took 246.8 seconds and was truncated, and llama3.2 after all six responses failed semantic validation. The exact installed model digest is required before any model call.
+  - id: openai-gpt-6-luna
+    provider: openai
+    model: gpt-6-luna
+    request_timeout_seconds: 180
+    settings:
+      temperature: 0
+      max_tokens: 3072
+      seed: 0
+      context_size: 0
+      reasoning_effort: low
+    sampling_policy: The Responses API request fixes low reasoning effort. Temperature, seed, and local context-size controls are not sent.
+  - id: openai-gpt-6-1-sol
+    provider: openai
+    model: gpt-6.1-sol
+    request_timeout_seconds: 180
+    settings:
+      temperature: 0
+      max_tokens: 3072
+      seed: 0
+      context_size: 0
+      reasoning_effort: low
+    sampling_policy: The Responses API request fixes low reasoning effort. Temperature, seed, and local context-size controls are not sent.
+output_limit_rationale: The shared schema permits at most six concise observations and five limitations. The 3072-token ceiling from the completed version 4 Luna run is retained equally for every condition and model configuration. A pilot at 1536 tokens caused truncation and was rejected before final execution. Truncation remains an explicit scored failure.

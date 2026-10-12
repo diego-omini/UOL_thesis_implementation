@@ -19,7 +19,7 @@ import (
 	"wails/analytics"
 )
 
-//go:embed v2/*.yaml v2/*.json v3/*.yaml v3/*.json v4/*.yaml v4/*.json scenarios/*.json
+//go:embed v2/*.yaml v2/*.json v3/*.yaml v3/*.json v4/*.yaml v4/*.json v5/*.yaml v5/*.json scenarios/*.json
 var v2Files embed.FS
 
 var v2DefinitionPaths = []string{

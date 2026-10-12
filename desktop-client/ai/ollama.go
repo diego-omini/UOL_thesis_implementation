@@ -67,10 +67,12 @@ type ollamaOptions struct {
 }
 
 type ollamaChatResponse struct {
-	Model      string        `json:"model"`
-	Message    ollamaMessage `json:"message"`
-	DoneReason string        `json:"done_reason"`
-	Error      string        `json:"error"`
+	Model           string        `json:"model"`
+	Message         ollamaMessage `json:"message"`
+	DoneReason      string        `json:"done_reason"`
+	PromptEvalCount int           `json:"prompt_eval_count"`
+	EvalCount       int           `json:"eval_count"`
+	Error           string        `json:"error"`
 }
 
 // NewOllamaProvider creates an Ollama adapter with a bounded request duration.
@@ -143,6 +145,10 @@ func (p *OllamaProvider) Chat(ctx context.Context, request ChatRequest) (ChatRes
 		Message:      fromOllamaMessage(generated.Message),
 		Model:        generated.Model,
 		FinishReason: generated.DoneReason,
+		Usage: TokenUsage{
+			InputTokens: generated.PromptEvalCount, OutputTokens: generated.EvalCount,
+			TotalTokens: generated.PromptEvalCount + generated.EvalCount,
+		},
 	}, nil
 }
 
